@@ -31,6 +31,10 @@ const config: Config = {
   },
 
   markdown: {
+    // The ADR bodies are immutable plain Markdown (for example "0 <= MinQty"
+    // in ADR 0002) and must not be parsed as MDX: .md files are CommonMark,
+    // the generated API pages are .mdx.
+    format: 'detect',
     mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: 'throw',

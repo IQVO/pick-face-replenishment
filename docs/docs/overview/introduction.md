@@ -54,9 +54,11 @@ It does **not** own stock levels, slot assignments or locations. Those arrive as
 ## Status of the execution chain
 
 Replenishment is meant to run through the relocation chain pick-face-replenishment, wes-work-planning (`REPLENISH`
-work), fulfillment-execution, inventory-storage (`RelocateStock`) and back as `StockRelocated`. On each sibling's
-`origin/develop` today only the edges into this service that already exist as published contracts are real; the
-producer side of the rest is planned. The honest per-edge table is on [Integration](/docs/ecosystem/integration).
+work), fulfillment-execution, inventory-storage (`RelocateStock`) and back as `StockRelocated`. Checked on each sibling's
+`origin/develop`: the inputs from slotting-optimization and facility-layout are live, inventory-storage does not yet
+publish `BinStockLevelChanged` or a `StockRelocated` with reason `REPLENISHMENT`, and nothing consumes
+`ReplenishmentRequested`, so today a request can be raised and cancelled but not completed. The per-edge table is on
+[Integration](/docs/ecosystem/integration).
 
 ## Where to go next
 
