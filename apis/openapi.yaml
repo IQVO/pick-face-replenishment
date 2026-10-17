@@ -268,7 +268,9 @@ paths:
         forward bin is the one the site's latest approved slot plan assigns to the
         SKU (422 `no-forward-assignment` when there is none). Without `quantity`
         the detector rules size it from the current levels (a request is then
-        raised only when the pick face is at or below its minimum); with
+        raised only when the pick face is at or below its minimum, otherwise
+        422 `nothing-to-replenish`; 422 `no-source-stock` when the face is low
+        but nothing can be moved); with
         `quantity` the same invariants apply: at least 1, the projected level plus
         the quantity at most the policy maximum (so a policy is required, 422
         `no-policy`), at most the source bin's usable stock (422 `no-source-stock`).
@@ -792,6 +794,14 @@ components:
                 title: No reserve bin can supply this quantity
                 status: 422
                 detail: no reserve bin of the site holds usable stock of this SKU for the requested quantity
+                instance: /replenishments
+            nothingToReplenish:
+              summary: The pick face is above its minimum and no quantity was given
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/nothing-to-replenish
+                title: The pick face does not need replenishment
+                status: 422
+                detail: the pick face is above its minimum; send a quantity to replenish it anyway
                 instance: /replenishments
             quantityExceedsMax:
               summary: The quantity would overfill the pick face

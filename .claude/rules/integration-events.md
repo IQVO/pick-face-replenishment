@@ -19,8 +19,8 @@ and `docs/adr/0004-cloudevents-envelope-and-type-catalogue.md`.
 Events leave only through the transactional outbox (request row and encoded
 events in ONE database transaction, a relay drains to Kafka). The relay builds
 on the scaffold writer in `internal/adapters/outbound/kafka/writer.go`: set
-`Message.Topic` per message and never add a Topic to the Writer. The wiring
-and the relay are built in wave 2.
+`Message.Topic` per message and never add a Topic to the Writer. The consumers
+are in `internal/adapters/inbound/kafka`; `cmd/api` wires them.
 
 ## Events: CloudEvents 1.0 is MANDATORY
 
@@ -120,7 +120,7 @@ consumer-first (inventory-storage producer change P1 is pending);
 A reserve bin is a Storage location (absent `role` = Storage) in a zone listed
 in `RESERVE_ZONE_CODES` (default `RSV`).
 
-## Consumer group id
+## Consumer group id and environment
 
 Three consumers, each with a stable group id read from env, never a hardcoded
 string literal: `INVENTORY_CONSUMER_GROUP`, `SLOTTING_CONSUMER_GROUP`,
@@ -132,10 +132,40 @@ silently collide with the live in-cluster Deployment's consumer group on
 the shared fleet Kafka broker).
 
 Modes `INVENTORY_MODE`, `SLOTTING_MODE`, `LAYOUT_MODE` default to `permissive`;
-`kafka` without its group env is a boot error. The local copies
+`kafka` without its group env, or without `KAFKA_BROKERS`, is a boot error
+(`cmd/api/consumers.go`). The local copies
 are durable in Postgres and resume from the committed offset, so the groups are
 stable, not unique per process (the unique-per-instance rule in HARNESS.md's
 Kafka section is only for consumers that replay from FirstOffset into memory).
+A new group starts at the first offset, so a fresh deployment replays each topic
+and the copies converge (an unseen bin reads as level 0, ADR 0005).
+
+| env | default | meaning |
+| --- | --- | --- |
+| `INVENTORY_MODE` | `permissive` | `kafka` starts the inventory consumer (`warehouse.inventory.events`); `permissive` starts none |
+| `INVENTORY_CONSUMER_GROUP` | none | group id of the inventory consumer; required when `INVENTORY_MODE=kafka` |
+| `SLOTTING_MODE` | `permissive` | `kafka` starts the slotting consumer (`warehouse.slotting-optimization.events`) |
+| `SLOTTING_CONSUMER_GROUP` | none | group id of the slotting consumer; required when `SLOTTING_MODE=kafka` |
+| `LAYOUT_MODE` | `permissive` | `kafka` starts the layout consumer (`warehouse.facility.events`) |
+| `LAYOUT_CONSUMER_GROUP` | none | group id of the layout consumer; required when `LAYOUT_MODE=kafka` |
+| `KAFKA_BROKERS` | none | comma-separated brokers; required by every consumer in `kafka` mode, and switches the outbox relay on |
+| `RESERVE_ZONE_CODES` / `FORWARD_ZONE_CODES` | `RSV` / `FWD` | zone codes that make a location a reserve bin / a forward pick face |
+
+In-memory mode (no `DATABASE_URL`) can run the consumers, but its copies are
+lost on restart while the committed offsets are not: it logs a WARN and is for
+development only.
+
+Failure handling (`internal/adapters/inbound/kafka`): each message is fetched,
+handled in ONE transaction together with its `processed_events` claim, and only
+then committed (`FetchMessage` + `CommitMessages`). A transient failure retries
+the same message with capped backoff (200ms doubling to 5s), at most five
+attempts, then the message goes to `<topic>.dlq` with `x-dlq-*` headers. A
+payload of a handled type that can never be applied (a missing field, a negative
+level) goes to `<topic>.dlq` at once. A message that is not a CloudEvents 1.0
+event (the retired flat envelope included) is skipped with a WARN and committed
+past; so is an unknown type, silently. A handler that fails because the process
+is stopping is never dead-lettered and never committed
+(`TestDeadLetterCallsGuardCancellation`).
 Consumer rules (FetchMessage + CommitMessages after success, dedupe on `id` in
 the same transaction as the effect, skip invalid CloudEvents with a WARN, never
 dead-letter on a cancelled context, `//dlq:deterministic` only for poison

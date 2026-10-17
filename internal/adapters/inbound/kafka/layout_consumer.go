@@ -1,0 +1,94 @@
+package kafka
+
+import (
+	"context"
+	"log/slog"
+
+	ce "github.com/cloudevents/sdk-go/v2/event"
+
+	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
+)
+
+// LayoutTopic is facility-layout's integration topic.
+const LayoutTopic = "warehouse.facility.events"
+
+// The facility-layout types this service acts on, byte-identical to its
+// AsyncAPI. Every other type on the topic is ignored.
+const (
+	TypeZoneRegistered             = "com.warehouse.wms.facility-layout.zone.ZoneRegistered"
+	TypeLocationSlotRegistered     = "com.warehouse.wms.facility-layout.locationslot.LocationSlotRegistered"
+	TypeLocationSlotDecommissioned = "com.warehouse.wms.facility-layout.locationslot.LocationSlotDecommissioned"
+)
+
+// The payloads mirror facility-layout's v1 events (restated here, never
+// imported). Their extra fields (areaCode, aisleId, locationType, dockFlow,
+// activities, weights and volumes...) are ignored. `role` is absent for a
+// Storage location.
+
+type zoneRegisteredData struct {
+	ZoneID   string `json:"zoneId"`
+	SiteCode string `json:"siteCode"`
+	ZoneCode string `json:"zoneCode"`
+}
+
+type locationSlotRegisteredData struct {
+	LocationCode string `json:"locationCode"`
+	ZoneID       string `json:"zoneId"`
+	Role         string `json:"role"`
+}
+
+type locationSlotDecommissionedData struct {
+	LocationCode string `json:"locationCode"`
+}
+
+// LayoutUseCases are the three use cases the layout consumer dispatches to.
+type LayoutUseCases struct {
+	Zone           *usecases.ApplyZone
+	Registered     *usecases.ApplyLocationRegistered
+	Decommissioned *usecases.ApplyLocationDecommissioned
+}
+
+// LayoutHandlers maps the facility topic's consumed types to their use cases.
+func LayoutHandlers(uc LayoutUseCases, logger *slog.Logger) map[string]HandlerFunc {
+	logger = defaultLogger(logger)
+	return map[string]HandlerFunc{
+		TypeZoneRegistered: func(ctx context.Context, e ce.Event) error {
+			d, err := decodeData[zoneRegisteredData](e)
+			if err != nil {
+				return err
+			}
+			return apply(ctx, logger, e, func() (usecases.Outcome, error) {
+				return uc.Zone.Handle(ctx, e.ID(), usecases.ZoneChange{ZoneID: d.ZoneID, SiteCode: d.SiteCode, ZoneCode: d.ZoneCode})
+			})
+		},
+		TypeLocationSlotRegistered: func(ctx context.Context, e ce.Event) error {
+			d, err := decodeData[locationSlotRegisteredData](e)
+			if err != nil {
+				return err
+			}
+			return apply(ctx, logger, e, func() (usecases.Outcome, error) {
+				return uc.Registered.Handle(ctx, e.ID(), usecases.LocationChange{Code: d.LocationCode, ZoneID: d.ZoneID, Role: d.Role})
+			})
+		},
+		TypeLocationSlotDecommissioned: func(ctx context.Context, e ce.Event) error {
+			d, err := decodeData[locationSlotDecommissionedData](e)
+			if err != nil {
+				return err
+			}
+			return apply(ctx, logger, e, func() (usecases.Outcome, error) {
+				return uc.Decommissioned.Handle(ctx, e.ID(), d.LocationCode)
+			})
+		},
+	}
+}
+
+// NewLayoutConsumer reads facility-layout's topic under groupID
+// (LAYOUT_CONSUMER_GROUP, never a literal).
+func NewLayoutConsumer(brokers []string, groupID string, uc LayoutUseCases, logger *slog.Logger) *Consumer {
+	return NewLayoutConsumerForTopic(brokers, LayoutTopic, groupID, uc, logger)
+}
+
+// NewLayoutConsumerForTopic is NewLayoutConsumer on an explicit topic.
+func NewLayoutConsumerForTopic(brokers []string, topic, groupID string, uc LayoutUseCases, logger *slog.Logger) *Consumer {
+	return newConsumer("layout consumer", brokers, topic, groupID, LayoutHandlers(uc, logger), logger)
+}
