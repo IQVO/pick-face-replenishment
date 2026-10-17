@@ -57,10 +57,13 @@ Replenishment is meant to run through the relocation chain pick-face-replenishme
 work), fulfillment-execution, inventory-storage (`RelocateStock`) and back as `StockRelocated`. Checked on each sibling's
 `origin/develop`: the inputs from slotting-optimization and facility-layout are live, inventory-storage publishes
 `BinStockLevelChanged` (its ADR 0040) and a `StockRelocated` with reason `REPLENISHMENT` for a completed `REPLENISH`
-task (its ADR 0041), and fulfillment-execution creates, announces and completes `REPLENISH` tasks (its ADR 0050). Still
-missing is the first hop: wes-work-planning consumes nothing from this service's topic and emits no `replenishment`
-object on `WorkReleased`, so today a request can be raised and cancelled but no task is created for it and it does not
-complete. The per-edge table is on [Integration](/docs/ecosystem/integration).
+task (its ADR 0041), fulfillment-execution creates, announces and completes `REPLENISH` tasks (its ADR 0050),
+wes-work-planning consumes `ReplenishmentRequested` and plans one `REPLENISH` work unit per request id, releasing it with
+a `replenishment` object on `WorkReleased` (its ADR 0042), and process-path-management declares the `REPLENISH` path (its
+ADR 0036). The chain is therefore built end to end on `develop`, but it is not live: nothing is deployed,
+`warehouse-infra` has no entry for this service and sets no `REPLENISHMENT_MODE`, so wes-work-planning's consumer (off by
+default) plans nothing, and until the `REPLENISH` path is seeded in a cluster wes-work-planning dead-letters the requests.
+The per-edge table is on [Integration](/docs/ecosystem/integration).
 
 ## Where to go next
 

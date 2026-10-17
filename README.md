@@ -19,10 +19,12 @@ Pick-Face Replenishment: WMS-tier Supporting bounded context of the warehouse-sy
   Postgres and real Kafka only: there is no in-memory mode ([ADR 0006](docs/adr/0006-postgres-and-kafka-are-the-only-runtime.md)).
   No auth, no MCP.
 
-The execution chain after `ReplenishmentRequested` is built except its first hop: inventory-storage publishes
-`BinStockLevelChanged` and applies a completed `REPLENISH` task as a `StockRelocated` with reason `REPLENISHMENT`, and
-fulfillment-execution runs the `REPLENISH` task, but wes-work-planning does not yet consume `ReplenishmentRequested` or
-release `REPLENISH` work; see [Integration](docs/docs/ecosystem/integration.md).
+The execution chain after `ReplenishmentRequested` is built end to end on `develop`: wes-work-planning plans one
+`REPLENISH` work unit per request (its ADR 0042, consumer opt-in with `REPLENISHMENT_MODE=kafka`),
+process-path-management declares the `REPLENISH` path (its ADR 0036, seeded per cluster), fulfillment-execution runs the
+`REPLENISH` task (its ADR 0050), and inventory-storage applies the completed task as a `StockRelocated` with reason
+`REPLENISHMENT` (its ADR 0041). It is not live: nothing is deployed and `warehouse-infra` sets no `REPLENISHMENT_MODE`;
+see [Integration](docs/docs/ecosystem/integration.md).
 
 ## Run it
 
