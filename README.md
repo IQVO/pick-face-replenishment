@@ -29,8 +29,9 @@ see [Integration](docs/docs/ecosystem/integration.md).
 ## Run it
 
 The service needs Postgres and Kafka and refuses to boot without `DATABASE_URL`, `KAFKA_BROKERS` and the three
-`*_CONSUMER_GROUP` variables. `make run-local` brings both up with `docker-compose.yml` (a job creates the five topics:
-the service never creates topics) and runs the service on them; host ports 5432 and 9092 must be free. **Not verified
+`*_CONSUMER_GROUP` variables. `make run-local` brings both up with `docker-compose.yml` (a job pre-creates the five topics
+locally; on the cluster the broker auto-creates them on first write and the service never creates topics through an
+admin API) and runs the service on them; host ports 5432 and 9092 must be free. **Not verified
 end to end:** the compose file could not be exercised on the development host, where the shared kind cluster already
 holds host port 9092. The proof that the service runs on real Postgres and Kafka is the testcontainers end-to-end test
 (`make integration`), which does not use this file:

@@ -36,7 +36,8 @@ sidebar_position: 3
 
 There is no in-memory mode: the service needs a real Postgres and a real Kafka ([ADR 0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime))
 and refuses to boot without `DATABASE_URL`, `KAFKA_BROKERS` and the three `*_CONSUMER_GROUP` variables, naming the
-missing one. The topics are owned by infrastructure; the service never creates them.
+missing one. The service never creates topics through an admin API: the cluster broker auto-creates them on first write
+and infrastructure declares none; the local compose file pre-creates the five with a job.
 
 ```bash
 make run-local     # docker compose: Postgres + Kafka + the five topics, then go run ./cmd/api
@@ -44,8 +45,9 @@ make local-down    # stop them (the Postgres volume is kept)
 ```
 
 `make run-local` needs host ports 5432 and 9092 free. The migrations are embedded and run at boot. The service logs the
-topics it consumes and produces, then `http server listening`. `/readyz` answers `200` once Postgres answers and Kafka
-has a leader for each of the five topics; until then it answers `503` `dependency-unavailable` and `/healthz` is `200`.
+topics it consumes and produces (informational), then `http server listening`. `/readyz` answers `200` once Postgres
+answers and a Kafka broker answers a metadata request (topics are not checked); until then it answers `503`
+`dependency-unavailable` and `/healthz` is `200`.
 What it waits for is on the [Runbook](/docs/operations/runbook#readiness-and-shutdown).
 
 By hand, against infrastructure you already have:
@@ -163,8 +165,9 @@ pointing at the shared broker.
   ([Configuration](/docs/operations/configuration#mandatory-configuration)). `*_MODE=permissive` is refused too.
 - A new consumer group starts at the first offset, so the local copies are rebuilt by replaying the whole topic.
 - Use group ids of your own: two processes sharing a group split the partitions between them.
-- The relay publishes to `warehouse.pick-face-replenishment.events` and `.analytics`. The topics must exist: the
-  service never creates them, and `/readyz` stays `503` until they do.
+- The relay publishes to `warehouse.pick-face-replenishment.events` and `.analytics`. The relay's writer sets
+  `AllowAutoTopicCreation`, so the cluster broker creates them on the first write (the local compose file pre-creates
+  them); `/readyz` does not wait for them.
 - The service has a `Dockerfile` and a Helm chart (`charts/pick-face-replenishment`, see
   [Configuration](/docs/operations/configuration#helm-chart)) but no `warehouse-infra` entry on `develop` yet, so it is
   not part of the kind cluster ([Runbook](/docs/operations/runbook#deployment-status)).

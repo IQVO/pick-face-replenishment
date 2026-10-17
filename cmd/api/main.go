@@ -32,8 +32,8 @@
 //	LOG_LEVEL                 debug | info | warn | error (default info)
 //
 // /readyz is the drain gate AND a Postgres ping AND a Kafka metadata check
-// (brokers reachable, every consumed and produced topic has a leader), cached
-// for a few seconds. /healthz is liveness only.
+// (a broker answers a metadata request that names no topic: reachability
+// only, never topics), cached for a few seconds. /healthz is liveness only.
 package main
 
 import (
