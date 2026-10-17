@@ -41,8 +41,7 @@ The service serves no `/metrics` endpoint (see [Observability](/docs/operations/
 - **`Idempotency-Key`** is required on the three POSTs (`/replenishments`, `/replenishments/{requestId}/cancel`,
   `/sites/{siteId}/evaluate`) when the service runs on Postgres: a missing or over-128-character key is
   `400 idempotency-key-required`, the same key and body replays the stored answer (4xx included), the same key with
-  another body is `422 idempotency-key-reused`. A 5xx is never stored. The in-memory mode installs no middleware and
-  ignores the header. The PUT and DELETE of a policy do not take it: they are guarded by `If-Match`.
+  another body is `422 idempotency-key-reused`. A 5xx is never stored. The PUT and DELETE of a policy do not take it: they are guarded by `If-Match`.
 - **Policy versions.** `PUT /policies/{siteId}/{sku}` without `If-Match` creates the policy at version 1
   (`409 policy-already-exists` when it exists); with `If-Match: <version>` (quoted or bare integer) it replaces the
   policy only when that is the current version (`409 concurrent-modification` otherwise). `DELETE` without

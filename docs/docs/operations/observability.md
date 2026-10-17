@@ -43,7 +43,7 @@ selects the threshold. There is **no access log**: successful requests are not l
 
 | Level | `msg` | Attributes | Meaning |
 | --- | --- | --- | --- |
-| INFO | `DATABASE_URL not configured; using in-memory adapters (no outbox relay, Idempotency-Key not enforced)` | | development mode |
+| INFO | `kafka topics (owned by infrastructure; the service never creates them)` | topics consumed and produced | logged at boot |
 | INFO | `postgres adapters configured` | | migrations ran and the pool pinged |
 | WARN | `retrying` | `op` (`run migrations`, `ping postgres`), `attempt`, `in`, `err` | boot retry, backoff 1 s doubling |
 | INFO | `succeeded after retry` | `op`, `attempt` | a retried boot step worked |
@@ -57,9 +57,7 @@ selects the threshold. There is **no access log**: successful requests are not l
 
 | Level | `msg` | Attributes | Meaning |
 | --- | --- | --- | --- |
-| INFO | `outbox relay off: in-memory mode has no outbox` | | no database |
-| WARN | `outbox relay off: KAFKA_BROKERS is not set; events accumulate in outbox_events until it is` | | rows are queued, none published |
-| INFO | `outbox relay running` | `interval`, `max_attempts`, `brokers` | relay started |
+| INFO | `outbox relay running` | `interval`, `max_attempts`, `brokers` | relay started (it always runs; a missing `DATABASE_URL` or `KAFKA_BROKERS` is a boot error) |
 | ERROR | `outbox relay pass failed` | `error` | a Kafka or database error; retried after the interval |
 | ERROR | `outbox relay: row reached the attempt cap and is excluded from future claims; re-arm it with attempts = 0 after fixing the cause` | `outbox_id`, `topic`, `event_type`, `key`, `attempts`, `max_attempts`, `error` | one row will not be retried until re-armed |
 | ERROR | `outbox relay stopped`, `kafka relay sink close failed` | `error` | the relay ended abnormally |
@@ -68,9 +66,7 @@ selects the threshold. There is **no access log**: successful requests are not l
 
 | Level | `msg` | Attributes | Meaning |
 | --- | --- | --- | --- |
-| INFO | `no consumer is in kafka mode; the local copies are whatever the database holds` | | all three modes are `permissive` |
-| WARN | `consumers run over in-memory adapters (DATABASE_URL is not set): the local copies are lost on restart while the committed offsets are kept` | | unsafe combination |
-| INFO | `consumer running` | `consumer` (`inventory consumer`, `slotting consumer`, `layout consumer`), `topic`, `group_id`, `brokers` | started |
+| INFO | `consumer running` | `consumer` (`inventory consumer`, `slotting consumer`, `layout consumer`), `topic`, `group_id`, `brokers` | started (all three always run) |
 | INFO | `event processed` | `type`, `event_id`, `subject`, `outcome` (`applied`, `duplicate`, `stale`, `ignored`) | one message handled |
 | WARN | `skipping a message that is not a valid CloudEvent` | `consumer`, `topic`, `error` | committed past, never retried |
 | WARN | `dead-lettering an event that can never be applied` | `consumer`, `type`, `event_id`, `error` | poison payload |

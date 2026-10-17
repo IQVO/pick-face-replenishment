@@ -26,7 +26,7 @@ dependencies point inward, and `internal/architecture` fails CI when they do not
 | `internal/adapters/outbound/events` | maps domain facts to CloudEvents outbox messages |
 | `internal/adapters/outbound/outbox` | the relay loop that drains `outbox_events` |
 | `internal/adapters/outbound/kafka` | the acks=all Kafka writer used by the relay |
-| `internal/adapters/outbound/memory` | in-memory adapters for development and the BDD suite |
+| `internal/adapters/outbound/memory` | in-memory test doubles for the unit and BDD suites only; the shipped binary never imports them (ADR 0006) |
 | `internal/adapters/kafka/cloudevents` | the single home of the CloudEvents 1.0 envelope (`New`, `Decode`) |
 | `internal/bootretry` | start-up retry with exponential backoff for the first outbound dial |
 | `migrations/` | embedded golang-migrate SQL (`0001_replenishment_schema`, `0002_forward_assignment_maps`) |
@@ -35,7 +35,7 @@ dependencies point inward, and `internal/architecture` fails CI when they do not
 
 | Binary | Role | Ports |
 | --- | --- | --- |
-| `cmd/api` | Composition root. Serves REST, runs the outbox relay (when Postgres and `KAFKA_BROKERS` are set) and up to three Kafka consumers (each opt-in with `*_MODE=kafka`). | HTTP `:8080` (`HTTP_ADDR`) |
+| `cmd/api` | Composition root. Serves REST, runs the outbox relay and the three Kafka consumers, all always on, on real Postgres and Kafka (ADR 0006). | HTTP `:8080` (`HTTP_ADDR`) |
 
 There is no `cmd/mcp`, no reports binary and no `web/`. The three background loops are goroutines of `cmd/api`, not
 separate deployables, so one process owns the HTTP server, the relay and the consumers and shuts them down in order
@@ -49,7 +49,7 @@ flowchart LR
     subgraph api["cmd/api (one process)"]
         router["chi router<br/>problem+json, Idempotency-Key"]
         uc["use cases<br/>+ Evaluator + detector"]
-        cons["3 Kafka consumers<br/>(opt-in)"]
+        cons["3 Kafka consumers"]
         relay["outbox relay"]
     end
     pg[("PostgreSQL<br/>policies, requests, local copies,<br/>outbox_events, processed_events,<br/>idempotency_keys")]
