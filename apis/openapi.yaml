@@ -1,0 +1,993 @@
+openapi: 3.0.3
+info:
+  title: Pick-Face Replenishment API
+  version: 1.0.0
+  description: |
+    The WMS-tier owner of forward pick-face replenishment in the warehouse-systems
+    platform (ADR 0001, ADR 0002). It watches the stock level of every forward
+    pick face against an explicit **min/max policy** per site and SKU, and when
+    the projected level reaches the minimum it raises a **replenishment request**:
+    move a quantity of the SKU from a reserve bin to the forward bin, never more
+    than the policy maximum. Policy `MIN_MAX` is the only v1 policy; the source
+    bin policy is `fullest-reserve-bin-v1` (the reserve bin of the same site with
+    the most usable stock).
+
+    This service moves no stock and creates no floor work. A request is
+    published as `ReplenishmentRequested`; wes-work-planning plans it as
+    `REPLENISH` work, fulfillment-execution runs it with an operator and
+    inventory-storage records the relocation (reason `REPLENISHMENT`). The
+    resulting `StockRelocated` comes back and completes the request. A request is
+    cancelled when the operator says so, when a newer approved slot plan no longer
+    assigns the SKU to that forward bin, or when its policy is removed.
+
+    Stock levels, forward assignments and locations are read from local copies fed
+    by events (ADR 0003); this API never calls a sibling context. Events are
+    published as CloudEvents on `warehouse.pick-face-replenishment.events` through
+    a transactional outbox (see `apis/asyncapi.yaml`).
+
+    Errors are RFC 7807 problem documents with
+    `type = https://errors.pick-face-replenishment.warehouse-systems.dev/<slug>`.
+    There is no authentication layer (fleet decision 2026-09-11).
+  contact:
+    name: pick-face-replenishment maintainers
+    url: https://github.com/IQVO/pick-face-replenishment
+  license:
+    name: UNLICENSED
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: http://localhost:8000/api/pick-face-replenishment
+    description: Local kind cluster through Kong
+tags:
+  - name: Policies
+    description: Declare, read and remove the min/max policy of a site and SKU.
+  - name: Pick faces
+    description: The replenishment status of every forward pick face.
+  - name: Replenishments
+    description: Replenishment requests, raised by detection or by an operator.
+  - name: Sites
+    description: Site-wide commands.
+  - name: Health
+    description: Liveness and readiness probes.
+
+paths:
+  /policies:
+    get:
+      operationId: listPolicies
+      summary: List replenishment policies
+      description: |
+        Lists the declared policies ordered by site and SKU, a page at a time.
+        `cursor` is the opaque `nextCursor` of the previous page; a response
+        without `nextCursor` is the last page. `siteId` and `sku` narrow the list.
+      tags: [Policies]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: siteId
+          in: query
+          description: Only policies of this site.
+          schema:
+            type: string
+        - name: sku
+          in: query
+          description: Only policies of this SKU.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of policies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyPage"
+              example:
+                items:
+                  - siteId: SITE-1
+                    sku: SKU-1
+                    minQty: 10
+                    maxQty: 60
+                    multiple: 6
+                    version: 2
+                    declaredAt: "2026-10-17T09:00:00Z"
+                nextCursor: U0lURS0xL1NLVS0x
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /policies/{siteId}/{sku}:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+      - $ref: "#/components/parameters/Sku"
+    put:
+      operationId: declarePolicy
+      summary: Declare or change a replenishment policy
+      description: |
+        Declares the `MIN_MAX` policy of a site and SKU. Without `If-Match` it
+        creates the policy at version 1 and answers 409 `policy-already-exists`
+        when one exists. With `If-Match: <version>` it replaces the policy only
+        when that is the current version (the new version is current + 1); a stale
+        value is a 409 `concurrent-modification`. The values must satisfy
+        `0 <= minQty < maxQty` and `multiple >= 1` (`multiple` defaults to 1). A
+        request quantity is always rounded down to a multiple of `multiple`.
+        Publishes `ReplenishmentPolicyDeclared` on the analytics topic. The
+        response carries the new version as `ETag`.
+      tags: [Policies]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeclarePolicyRequest"
+            example:
+              minQty: 10
+              maxQty: 60
+              multiple: 6
+      responses:
+        "200":
+          description: The policy is declared (created at version 1, or replaced).
+          headers:
+            ETag:
+              description: The policy version after this change.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policy"
+              example:
+                siteId: SITE-1
+                sku: SKU-1
+                minQty: 10
+                maxQty: 60
+                multiple: 6
+                version: 1
+                declaredAt: "2026-10-17T09:00:00Z"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: getPolicy
+      summary: Get a replenishment policy
+      description: Returns the declared policy of a site and SKU, with its current version also as `ETag`.
+      tags: [Policies]
+      responses:
+        "200":
+          description: The policy.
+          headers:
+            ETag:
+              description: The current policy version.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removePolicy
+      summary: Remove a replenishment policy
+      description: |
+        Removes the policy of a site and SKU, given `If-Match: <version>` (a stale
+        value is a 409 `concurrent-modification`). Every open request of that
+        site and SKU is cancelled with reason `POLICY_REMOVED` in the same
+        transaction. Without a policy the pick face reports `NO_POLICY` and
+        raises no request.
+      tags: [Policies]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204":
+          description: The policy was removed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /pick-faces:
+    get:
+      operationId: listPickFaces
+      summary: List pick faces and their replenishment status
+      description: |
+        One entry per forward pick face of the site (a forward bin assigned to a
+        SKU by the site's latest approved slot plan), ordered by forward bin.
+        `available = onHand - reserved`. `status` is `BELOW_MIN` when the
+        projected level (available plus the open request, if any) is at or below
+        the policy minimum, `OK` otherwise, `NO_POLICY` when no policy is
+        declared, and `NO_SOURCE` when the level is low but no reserve bin can
+        supply it. Read from the event-fed local copies (ADR 0003).
+      tags: [Pick faces]
+      parameters:
+        - name: siteId
+          in: query
+          required: true
+          description: The site.
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Only pick faces with this status.
+          schema:
+            $ref: "#/components/schemas/PickFaceStatus"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of pick faces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickFacePage"
+              example:
+                items:
+                  - siteId: SITE-1
+                    forwardBin: WH1-FWD-A01-01-01-A
+                    sku: SKU-1
+                    onHand: 8
+                    reserved: 3
+                    available: 5
+                    minQty: 10
+                    maxQty: 60
+                    openRequestId: repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07
+                    status: BELOW_MIN
+                  - siteId: SITE-1
+                    forwardBin: WH1-FWD-A01-01-02-A
+                    sku: SKU-2
+                    onHand: 40
+                    reserved: 0
+                    available: 40
+                    minQty: 10
+                    maxQty: 60
+                    status: OK
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /replenishments:
+    post:
+      operationId: requestReplenishment
+      summary: Raise a replenishment request by hand
+      description: |
+        Raises a request for a SKU of a site outside the periodic detection. The
+        forward bin is the one the site's latest approved slot plan assigns to the
+        SKU (422 `no-forward-assignment` when there is none). Without `quantity`
+        the detector rules size it from the current levels (a request is then
+        raised only when the pick face is at or below its minimum); with
+        `quantity` the same invariants apply: at least 1, the projected level plus
+        the quantity at most the policy maximum (so a policy is required, 422
+        `no-policy`), at most the source bin's usable stock (422 `no-source-stock`).
+        At most one request is open per forward bin and SKU (409
+        `replenishment-already-open`). Publishes `ReplenishmentRequested`. Requires
+        an `Idempotency-Key`; replaying the same key and body returns the original
+        request.
+      tags: [Replenishments]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestReplenishmentRequest"
+            example:
+              siteId: SITE-1
+              sku: SKU-1
+              quantity: 24
+      responses:
+        "201":
+          description: The request was raised.
+          headers:
+            Location:
+              description: Path of the new request.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplenishmentRequest"
+              example:
+                requestId: repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07
+                siteId: SITE-1
+                sku: SKU-1
+                forwardBin: WH1-FWD-A01-01-01-A
+                sourceBin: WH1-RSV-A07-03-02-B
+                quantity: 24
+                priority: NORMAL
+                state: Requested
+                policyMin: 10
+                policyMax: 60
+                requestedAt: "2026-10-17T09:30:00Z"
+                version: 1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: listReplenishments
+      summary: List replenishment requests
+      description: |
+        Lists requests newest first, a page at a time. `cursor` is the opaque
+        `nextCursor` of the previous page; a response without `nextCursor` is the
+        last page. Optional filters narrow by site, SKU and state.
+      tags: [Replenishments]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: siteId
+          in: query
+          description: Only requests of this site.
+          schema:
+            type: string
+        - name: sku
+          in: query
+          description: Only requests of this SKU.
+          schema:
+            type: string
+        - name: state
+          in: query
+          description: Only requests in this state.
+          schema:
+            $ref: "#/components/schemas/RequestState"
+      responses:
+        "200":
+          description: One page of requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplenishmentPage"
+              example:
+                items:
+                  - requestId: repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07
+                    siteId: SITE-1
+                    sku: SKU-1
+                    forwardBin: WH1-FWD-A01-01-01-A
+                    sourceBin: WH1-RSV-A07-03-02-B
+                    quantity: 24
+                    movedQuantity: 24
+                    priority: NORMAL
+                    state: Completed
+                    policyMin: 10
+                    policyMax: 60
+                    requestedAt: "2026-10-17T09:30:00Z"
+                    completedAt: "2026-10-17T10:05:00Z"
+                    version: 2
+                nextCursor: cmVwbC0z
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /replenishments/{requestId}:
+    parameters:
+      - $ref: "#/components/parameters/RequestId"
+    get:
+      operationId: getReplenishment
+      summary: Get a replenishment request
+      description: Returns the request with its state and timestamps, including how many units the relocation moved once it is `Completed`.
+      tags: [Replenishments]
+      responses:
+        "200":
+          description: The request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplenishmentRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /replenishments/{requestId}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/RequestId"
+    post:
+      operationId: cancelReplenishment
+      summary: Cancel an open replenishment request
+      description: |
+        Moves a `Requested` request to `Cancelled` with reason `OPERATOR` and
+        publishes `ReplenishmentCancelled`. Cancelling a request that is already
+        `Completed` or `Cancelled` is a 409 `replenishment-not-open`. Requires an
+        `Idempotency-Key`. A request already planned or released as floor work is
+        not recalled by this service; the downstream work completes or is
+        cancelled by its own context.
+      tags: [Replenishments]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The request is now Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplenishmentRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /sites/{siteId}/evaluate:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+    post:
+      operationId: evaluateSite
+      summary: Re-run detection for a site
+      description: |
+        Runs the detector over every forward pick face of the site now and raises
+        the requests it finds. It is a sweep that converges: a pick face that
+        already has an open request is reported as `alreadyOpen` and left alone,
+        so running it twice raises nothing the second time. Requires an
+        `Idempotency-Key`; replaying the same key returns the original summary.
+      tags: [Sites]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The sweep finished.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluationSummary"
+              example:
+                siteId: SITE-1
+                evaluatedAt: "2026-10-17T09:45:00Z"
+                evaluated: 5
+                raised: 1
+                healthy: 2
+                alreadyOpen: 1
+                noPolicy: 1
+                noSource: 0
+                requestIds:
+                  - repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Liveness probe
+      description: 200 while the process is running.
+      tags: [Health]
+      responses:
+        "200":
+          description: Alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+  /readyz:
+    get:
+      operationId: readyz
+      summary: Readiness probe
+      description: 200 when the service can serve traffic; 503 while starting or draining for shutdown.
+      tags: [Health]
+      responses:
+        "200":
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+        "503":
+          description: Not ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+
+components:
+  parameters:
+    SiteId:
+      name: siteId
+      in: path
+      required: true
+      description: The site id (the facility site code).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: '\S'
+      example: SITE-1
+    Sku:
+      name: sku
+      in: path
+      required: true
+      description: The SKU.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: '\S'
+      example: SKU-1
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      description: The request id (`repl-` followed by a unique suffix, at most 64 characters).
+      schema:
+        type: string
+        minLength: 6
+        maxLength: 64
+        pattern: "^repl-[^\\s/]+$"
+      example: repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: |
+        The policy version the caller read (the `ETag` of a previous response, with
+        or without the double quotes). Omit it to create a policy; send it to
+        replace or remove one. A value that is not the current version is a 409
+        `concurrent-modification`.
+      schema:
+        type: string
+        pattern: '^"?[0-9]+"?$'
+      example: '"1"'
+    Limit:
+      name: limit
+      in: query
+      description: Page size, 1 to 500 (default 100).
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 500
+        default: 100
+    Cursor:
+      name: cursor
+      in: query
+      description: The `nextCursor` value from the previous page.
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Caller-generated unique key (a UUID per logical submit) that makes a
+        retried request safe. Required whenever the service runs with Postgres,
+        that is in every deployment, and answered with 400
+        `idempotency-key-required` when absent; a replay with the same key and
+        the same body returns the original response, while the same key with a
+        different body is 422 `idempotency-key-reused`. The in-memory development
+        mode (no `DATABASE_URL`) does not enforce it, which is why the header is
+        not marked `required` here.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+
+  responses:
+    BadRequest:
+      description: Malformed JSON body, an unknown field, or an invalid path, query or header parameter.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            malformedBody:
+              summary: Malformed JSON body or unknown field
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/malformed-request
+                title: Malformed request
+                status: 400
+                detail: request body is not valid JSON for this operation
+                instance: /replenishments
+            invalidPolicy:
+              summary: Policy bounds out of range
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-policy
+                title: Policy is invalid
+                status: 400
+                detail: minQty must be at least 0 and below maxQty, and multiple at least 1
+                instance: /policies/SITE-1/SKU-1
+            invalidQuantity:
+              summary: Quantity below 1
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-quantity
+                title: Quantity is invalid
+                status: 400
+                detail: quantity must be at least 1
+                instance: /replenishments
+            invalidSite:
+              summary: Blank site id
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-site-id
+                title: Site id is invalid
+                status: 400
+                detail: siteId must not be blank
+                instance: /pick-faces
+            invalidSku:
+              summary: Blank SKU
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-sku
+                title: SKU is invalid
+                status: 400
+                detail: sku must not be blank
+                instance: /policies/SITE-1/%20
+            invalidRequestId:
+              summary: Invalid request id
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-request-id
+                title: Request id is invalid
+                status: 400
+                detail: "request id must start with repl- and have no whitespace, control characters or '/'"
+                instance: /replenishments/nope
+            invalidIfMatch:
+              summary: If-Match is not a version
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-if-match
+                title: If-Match is invalid
+                status: 400
+                detail: If-Match must be a policy version, a non-negative integer
+                instance: /policies/SITE-1/SKU-1
+            invalidState:
+              summary: Unknown request state filter
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-state
+                title: State is invalid
+                status: 400
+                detail: "state must be one of Requested, Completed, Cancelled"
+                instance: /replenishments
+            invalidStatus:
+              summary: Unknown pick-face status filter
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-status
+                title: Status is invalid
+                status: 400
+                detail: "status must be one of BELOW_MIN, OK, NO_SOURCE, NO_POLICY"
+                instance: /pick-faces
+            invalidLimit:
+              summary: Invalid limit
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-limit
+                title: Limit is invalid
+                status: 400
+                detail: limit must be between 1 and 500
+                instance: /replenishments
+            invalidCursor:
+              summary: Invalid cursor
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-cursor
+                title: Cursor is invalid
+                status: 400
+                detail: cursor is not a value returned by this API
+                instance: /replenishments
+            idempotencyKeyRequired:
+              summary: Missing Idempotency-Key
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/idempotency-key-required
+                title: Idempotency-Key header is required
+                status: 400
+                detail: send an Idempotency-Key header with a unique value per logical request
+                instance: /replenishments
+    NotFound:
+      description: No policy or request has this identity.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            policyNotFound:
+              summary: No policy for this site and SKU
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/policy-not-found
+                title: Replenishment policy not found
+                status: 404
+                detail: replenishment policy not found
+                instance: /policies/SITE-1/SKU-9
+            replenishmentNotFound:
+              summary: No request has this id
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/replenishment-not-found
+                title: Replenishment request not found
+                status: 404
+                detail: replenishment request not found
+                instance: /replenishments/repl-unknown
+    Conflict:
+      description: The resource is in the wrong state for the command, or another request changed it first.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            policyAlreadyExists:
+              summary: A policy exists and no If-Match was sent
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/policy-already-exists
+                title: A policy already exists for this site and SKU
+                status: 409
+                detail: send If-Match with the current policy version to replace it
+                instance: /policies/SITE-1/SKU-1
+            replenishmentAlreadyOpen:
+              summary: The forward bin already has an open request for this SKU
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/replenishment-already-open
+                title: A replenishment request is already open for this pick face
+                status: 409
+                detail: request repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07 is open for this forward bin and SKU
+                instance: /replenishments
+            replenishmentNotOpen:
+              summary: Only a Requested request can be cancelled
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/replenishment-not-open
+                title: Only a Requested replenishment can be cancelled
+                status: 409
+                detail: replenishment request is not Requested
+                instance: /replenishments/repl-1/cancel
+            concurrentModification:
+              summary: Stale If-Match or concurrent write
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/concurrent-modification
+                title: The resource was modified by another request; re-fetch the latest version and retry
+                status: 409
+                detail: concurrent modification
+                instance: /policies/SITE-1/SKU-1
+    UnprocessableEntity:
+      description: The request is well-formed but the current state does not allow it, or the Idempotency-Key was reused.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            idempotencyKeyReused:
+              summary: The Idempotency-Key was used with a different body
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/idempotency-key-reused
+                title: Idempotency-Key was already used with a different request
+                status: 422
+                detail: the Idempotency-Key was used with a different request body
+                instance: /replenishments
+            noForwardAssignment:
+              summary: The SKU has no forward bin
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/no-forward-assignment
+                title: The SKU has no forward pick face at this site
+                status: 422
+                detail: the site's approved slot plan assigns no forward bin to this SKU
+                instance: /replenishments
+            noPolicy:
+              summary: The SKU has no policy
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/no-policy
+                title: The SKU has no replenishment policy at this site
+                status: 422
+                detail: declare a policy with PUT /policies/{siteId}/{sku} first
+                instance: /replenishments
+            noSourceStock:
+              summary: No reserve bin can supply the quantity
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/no-source-stock
+                title: No reserve bin can supply this quantity
+                status: 422
+                detail: no reserve bin of the site holds usable stock of this SKU for the requested quantity
+                instance: /replenishments
+            quantityExceedsMax:
+              summary: The quantity would overfill the pick face
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/quantity-exceeds-max
+                title: The quantity would exceed the policy maximum
+                status: 422
+                detail: projected level plus quantity must not exceed maxQty
+                instance: /replenishments
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://errors.pick-face-replenishment.warehouse-systems.dev/internal-error
+            title: Internal server error
+            status: 500
+            detail: an unexpected error occurred
+            instance: /replenishments
+
+  schemas:
+    RequestState:
+      type: string
+      description: Lifecycle state of a request. `Completed` and `Cancelled` are final.
+      enum: [Requested, Completed, Cancelled]
+    Priority:
+      type: string
+      description: "`URGENT` when the pick face had nothing available (`onHand - reserved <= 0`) at detection, else `NORMAL`."
+      enum: [NORMAL, URGENT]
+    CancelReason:
+      type: string
+      description: |
+        `OPERATOR`: cancelled through this API. `ASSIGNMENT_CHANGED`: a newer
+        approved slot plan no longer assigns the SKU to the forward bin.
+        `POLICY_REMOVED`: the policy was removed.
+      enum: [OPERATOR, ASSIGNMENT_CHANGED, POLICY_REMOVED]
+    PickFaceStatus:
+      type: string
+      description: |
+        `BELOW_MIN`: the projected level is at or below the minimum. `OK`: above
+        it. `NO_POLICY`: no policy declared. `NO_SOURCE`: low, but no reserve bin
+        can supply it.
+      enum: [BELOW_MIN, OK, NO_SOURCE, NO_POLICY]
+
+    DeclarePolicyRequest:
+      type: object
+      additionalProperties: false
+      required: [minQty, maxQty]
+      properties:
+        minQty:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Replenish when the projected level is at or below this.
+        maxQty:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Never fill beyond this; must be greater than `minQty`.
+        multiple:
+          type: integer
+          format: int64
+          minimum: 1
+          default: 1
+          description: A request quantity is rounded down to a multiple of this (a case or inner-pack size).
+    RequestReplenishmentRequest:
+      type: object
+      additionalProperties: false
+      required: [siteId, sku]
+      properties:
+        siteId:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '\S'
+          description: The site of the pick face.
+        sku:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '\S'
+          description: The SKU to replenish.
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Units to move; sized by the detector rules when omitted.
+
+    Policy:
+      type: object
+      required: [siteId, sku, minQty, maxQty, multiple, version, declaredAt]
+      properties:
+        siteId: { type: string }
+        sku: { type: string }
+        minQty: { type: integer, format: int64, minimum: 0 }
+        maxQty: { type: integer, format: int64, minimum: 1 }
+        multiple: { type: integer, format: int64, minimum: 1 }
+        version: { type: integer, format: int64, minimum: 1, description: "Starts at 1, +1 per accepted change." }
+        declaredAt: { type: string, format: date-time }
+    PolicyPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Policy" }
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page; absent on the last page.
+
+    PickFace:
+      type: object
+      required: [siteId, forwardBin, sku, onHand, reserved, available, status]
+      properties:
+        siteId: { type: string }
+        forwardBin: { type: string, description: The facility-layout location code of the forward bin. }
+        sku: { type: string }
+        onHand: { type: integer, format: int64, minimum: 0 }
+        reserved: { type: integer, format: int64, minimum: 0 }
+        available: { type: integer, format: int64, description: "`onHand - reserved`; can be negative when reservations exceed the bin." }
+        minQty: { type: integer, format: int64, minimum: 0, description: Absent when the face has no policy. }
+        maxQty: { type: integer, format: int64, minimum: 1, description: Absent when the face has no policy. }
+        openRequestId: { type: string, description: The open request of this face; absent when none. }
+        status: { $ref: "#/components/schemas/PickFaceStatus" }
+    PickFacePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PickFace" }
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page; absent on the last page.
+
+    ReplenishmentRequest:
+      type: object
+      required: [requestId, siteId, sku, forwardBin, sourceBin, quantity, priority, state, policyMin, policyMax, requestedAt, version]
+      properties:
+        requestId: { type: string, example: repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07 }
+        siteId: { type: string }
+        sku: { type: string }
+        forwardBin: { type: string, description: The pick face to fill. }
+        sourceBin: { type: string, description: The reserve bin the stock comes from. }
+        quantity: { type: integer, format: int64, minimum: 1, description: Units planned to move. }
+        movedQuantity: { type: integer, format: int64, minimum: 1, description: Units the relocation moved; present once Completed. }
+        priority: { $ref: "#/components/schemas/Priority" }
+        state: { $ref: "#/components/schemas/RequestState" }
+        policyMin: { type: integer, format: int64, minimum: 0, description: The policy minimum at detection. }
+        policyMax: { type: integer, format: int64, minimum: 1, description: The policy maximum at detection. }
+        requestedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+        cancelledAt: { type: string, format: date-time }
+        cancelReason: { $ref: "#/components/schemas/CancelReason" }
+        version: { type: integer, format: int64, minimum: 1, description: "Starts at 1, +1 per accepted transition." }
+    ReplenishmentPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ReplenishmentRequest" }
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page; absent on the last page.
+
+    EvaluationSummary:
+      type: object
+      required: [siteId, evaluatedAt, evaluated, raised, healthy, alreadyOpen, noPolicy, noSource, requestIds]
+      properties:
+        siteId: { type: string }
+        evaluatedAt: { type: string, format: date-time }
+        evaluated: { type: integer, format: int32, minimum: 0, description: Pick faces examined. }
+        raised: { type: integer, format: int32, minimum: 0, description: Requests raised by this sweep. }
+        healthy: { type: integer, format: int32, minimum: 0, description: Faces above their minimum. }
+        alreadyOpen: { type: integer, format: int32, minimum: 0, description: Faces that already have an open request. }
+        noPolicy: { type: integer, format: int32, minimum: 0, description: Faces without a policy. }
+        noSource: { type: integer, format: int32, minimum: 0, description: Low faces no reserve bin can supply. }
+        requestIds:
+          type: array
+          description: The requests raised, in forward-bin order.
+          items: { type: string }
+
+    Problem:
+      type: object
+      description: RFC 7807 problem document used for every non-2xx response.
+      required: [type, title, status, detail]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer, format: int32 }
+        detail: { type: string }
+        instance: { type: string }
+    Status:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, example: ok }
