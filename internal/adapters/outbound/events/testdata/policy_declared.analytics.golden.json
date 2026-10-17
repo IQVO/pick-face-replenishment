@@ -1,0 +1,19 @@
+{
+  "specversion": "1.0",
+  "id": "2b1a0f9e-8d7c-4b6a-a594-837261504f3e",
+  "source": "/warehouse/pick-face-replenishment",
+  "type": "com.warehouse.wms.pick-face-replenishment.policy.ReplenishmentPolicyDeclared",
+  "subject": "WH1/SKU-1",
+  "time": "2026-10-17T09:00:00Z",
+  "datacontenttype": "application/json",
+  "dataschema": "urn:warehouse:pick-face-replenishment:analytics:ReplenishmentPolicyDeclared:v1",
+  "data": {
+    "site_id": "WH1",
+    "sku": "SKU-1",
+    "min_qty": 10,
+    "max_qty": 60,
+    "multiple": 6,
+    "version": 1,
+    "declared_at": "2026-10-17T09:00:00Z"
+  }
+}
