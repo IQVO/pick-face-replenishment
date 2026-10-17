@@ -126,9 +126,9 @@ dispatch.
 | `drift` | dead code, `go mod tidy -diff`, knip on `web/`, coverage-quality | only on schedule / dispatch, advisory |
 | `api-lint` | Spectral on both specs | yes |
 | `vuln` | `govulncheck ./...` | yes |
-| `chart-tests` | the scripts under `charts/pick-face-replenishment/tests` | passes with a warning: there is no chart |
+| `chart-tests` | `render_test.sh`, `test_service_selectors.py`, `test_kong_config.py` under `charts/pick-face-replenishment/tests` | yes |
 | `arch-test` | `go test ./internal/architecture/... -v` | yes |
-| `docker-publish` | build, push, cosign, SBOM to GHCR | only on push to `main` (needs a Dockerfile, which `develop` does not have) |
+| `docker-publish` | build the root `Dockerfile`, push, cosign, SBOM to GHCR | only on push to `main` |
 | `release` | tag, retag image, package and push the Helm chart, GitHub release | only on push to `main` |
 
 Two more workflows: `docs.yml` builds this site on every pull request touching `docs/**`, `apis/**` or the workflow, and

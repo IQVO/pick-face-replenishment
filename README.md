@@ -81,3 +81,32 @@ deploys it from `main`.
 | `make mutation` | gremlins over the four domain packages |
 
 See [Testing](docs/docs/development/testing.md) for the CI jobs.
+
+## Build and deploy
+
+| Artifact | What it is |
+| --- | --- |
+| `Dockerfile` | digest-pinned multi-stage build of every `cmd/*` binary (only `api` today), non-root uid 1000, migrations embedded in the binary; `docker build -t pick-face-replenishment .` |
+| `charts/pick-face-replenishment` | the Helm chart that deploys what [ADR 0006](docs/adr/0006-postgres-and-kafka-are-the-only-runtime.md) requires: real Postgres and real Kafka, the three consumers always on, no `*_MODE` ever rendered |
+| `charts/pick-face-replenishment/tests` | `render_test.sh`, `test_service_selectors.py`, `test_kong_config.py` (CI job `chart-tests`) |
+
+The chart refuses to render, with a message naming the value, unless these are set:
+
+| Value | Env var | Note |
+| --- | --- | --- |
+| `database.url` or `database.existingSecret` | `DATABASE_URL` (a Secret, never the ConfigMap) | `database.migrationsExistingSecretKey` adds the optional `MIGRATIONS_DATABASE_URL` |
+| `kafka.brokers` | `KAFKA_BROKERS` | no default broker |
+| `config.inventoryConsumerGroup`, `config.slottingConsumerGroup`, `config.layoutConsumerGroup` | `INVENTORY_CONSUMER_GROUP`, `SLOTTING_CONSUMER_GROUP`, `LAYOUT_CONSUMER_GROUP` | stable names (defaults `pick-face-replenishment-inventory`, `-slotting`, `-layout`) |
+
+```bash
+helm lint charts/pick-face-replenishment -f charts/pick-face-replenishment/ci/default-values.yaml
+helm template pick-face-replenishment charts/pick-face-replenishment \
+  --set database.existingSecret=pick-face-replenishment-db --set kafka.brokers=kafka:9092
+bash charts/pick-face-replenishment/tests/render_test.sh
+python3 charts/pick-face-replenishment/tests/test_service_selectors.py
+python3 charts/pick-face-replenishment/tests/test_kong_config.py
+```
+
+Full list of values and probes: [Configuration](docs/docs/operations/configuration.md#helm-chart) and the
+[Runbook](docs/docs/operations/runbook.md#deployment-status). Go test files never sit at the repository root: the godog
+suite lives in `features/` and `TestNoGoFilesAtRepoRoot` keeps it that way.

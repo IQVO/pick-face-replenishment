@@ -14,14 +14,14 @@ How `cmd/api` is deployed, started, drained, migrated and operated. Everything h
 
 | Artifact | State on `develop` |
 | --- | --- |
-| Dockerfile | **absent** (`git ls-tree` shows none) although `.github/workflows/ci.yml` `docker-publish` builds `context: .` and tags `ghcr.io/iqvo/pick-face-replenishment` on push to `main` |
-| Helm chart `charts/pick-face-replenishment` | **absent**, although `ci.yml` jobs `chart-tests` and `release` refer to it (`chart-tests` prints a warning and passes when the directory has no tests; `release` runs `helm package charts/pick-face-replenishment` on push to `main`) |
-| `warehouse-infra` | **no entry**: no `helm-values/pick-face-replenishment.yaml`, no `terraform/dashboards/contexts/pick-face-replenishment.json`, no Kong route and no database in `terraform/services.tf` |
+| Dockerfile | `Dockerfile` at the repository root: digest-pinned multi-stage build of every `cmd/*` binary (`api` only), non-root uid 1000, `ENTRYPOINT ["./api"]`, port 8080. Started without environment it exits 1 naming `DATABASE_URL`, `KAFKA_BROKERS` and the three `*_CONSUMER_GROUP` variables. Built by `docker-publish` on push to `main` |
+| Helm chart `charts/pick-face-replenishment` | present: it deploys what [ADR 0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime) requires (Postgres, Kafka, three consumers, no `*_MODE`); see [Configuration](/docs/operations/configuration#helm-chart). CI runs `charts/pick-face-replenishment/tests/*` in `chart-tests`, and `release` packages it on push to `main` |
+| `warehouse-infra` | **no entry**: no `helm-values/pick-face-replenishment.yaml`, no `terraform/dashboards/contexts/pick-face-replenishment.json`, no Kong route and no database in `terraform/services.tf` (the values that chart needs: a database Secret, `kafka.brokers`, the Kong `gatewayApi` parentRef and path `/api/pick-face-replenishment`) |
 | Kafka topics | not pre-created by the repo; the dead-letter writer allows auto-creation of `<topic>.dlq` |
 
-So today the service runs from a local binary or a container someone builds; the sections below describe what any
-deployment must provide. Those missing artifacts, and the `drift` job's `web/` step for a directory that does not exist,
-are listed as discrepancies in the campaign report rather than fixed here.
+The image and the chart exist; what is missing is the `warehouse-infra` entry, so the service is not part of the kind
+cluster yet. The sections below describe what any deployment must provide. The `drift` job's `web/` step for a directory
+that does not exist is listed as a discrepancy in the campaign report rather than fixed here.
 
 ## What a deployment needs
 
@@ -168,6 +168,7 @@ protection for those keys. Do **not** delete `processed_events` rows of messages
   batches; the Kafka key keeps a request's events on one partition, and a request's events are inserted in order.
   Consumers of one group split the topic's partitions; the three topics' partition counts bound consumer parallelism.
 - **Database.** Each process holds at most 10 connections (`MaxConns`) with a 5 s `statement_timeout`; size Postgres (or
-  PgBouncer) for replicas times 10. There is no HPA because there is no chart yet.
+  PgBouncer) for replicas times 10. The chart has an HPA (`autoscaling.api`, off by default); the relay and the
+  version-guarded writes are safe with N > 1, which has not been load-tested.
 - **Sweep cost.** `POST /sites/{siteId}/evaluate` assesses every forward assignment of the site one unit of work at a
   time; `GET /pick-faces` assesses faces in order until a page is full. Both are linear in the number of faces.
