@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS idempotency_keys;
+DROP TABLE IF EXISTS outbox_events;
+DROP TABLE IF EXISTS processed_events;
+DROP TABLE IF EXISTS locations;
+DROP TABLE IF EXISTS zones;
+DROP TABLE IF EXISTS forward_assignments;
+DROP TABLE IF EXISTS bin_stock_levels;
+DROP TABLE IF EXISTS replenishment_requests;
+DROP TABLE IF EXISTS policies;
