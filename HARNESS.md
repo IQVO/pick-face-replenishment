@@ -37,7 +37,7 @@ three regulation categories: **maintainability**, **architecture fitness**,
 | `bdd` (godog/Gherkin) | behaviour | computational | pre-push, PR | yes | seconds |
 | `arch-test` (arch-go fitness) | architecture fitness | computational | pre-push, PR | yes | seconds |
 | `integration` (testcontainers) | behaviour | computational | PR | yes | minutes |
-| `mutation-fast` (gremlins, one aggregate) | maintainability | computational | PR | yes | ~1 min |
+| `mutation-fast` (gremlins, every domain package) | maintainability | computational | PR | yes | ~1 min |
 | `mutation` (gremlins, full domain) | maintainability | computational | weekly schedule | no (advisory report) | tens of minutes |
 | `vuln` (govulncheck) | maintainability | computational | PR | yes | seconds |
 | `api-lint` (Spectral) | maintainability | computational | PR | yes | seconds |
