@@ -87,16 +87,30 @@ wire (ADR 0004).
 
 ## Key use cases
 
-The application layer is built in wave 2; none of it is committed yet. The
-intended use cases follow `apis/openapi.yaml` (`operationId` in
-`.claude/rules/rest-api.md`) plus the event consumers of ADR 0003:
+The application layer lives in `internal/application/{ports,repository,usecases}`
+(ports are interfaces only; `repository` holds their errors, filters and value
+types). Every write runs in ONE `ports.UnitOfWork` and hands the aggregates'
+facts to the `EventSink` (outbox) in that same unit. A shared `Evaluator` reads
+the local copies of one pick face, runs `detection.Detect` and plans the
+request, so the sweep, the consumers, the manual request and the pick-face view
+cannot disagree. Use cases (one file each):
 
-- Policy commands: `DeclarePolicy`, `RemovePolicy` (cancels open requests with
-  `POLICY_REMOVED` in one transaction), `GetPolicy`, `ListPolicies`.
-- Request commands: `RequestReplenishment`, `CancelReplenishment`,
-  `EvaluateSite` (sweep that converges), plus the queries `GetReplenishment`,
-  `ListReplenishments`, `ListPickFaces`.
-- Consumer-driven: apply a bin stock level, replace a site's forward
-  assignments (cancelling requests with `ASSIGNMENT_CHANGED`), maintain
-  locations, and complete a request from a matching `StockRelocated`.
+- Policy: `DeclarePolicy` (`If-Match` version; analytics fact), `RemovePolicy`
+  (cancels the SKU's open requests with `POLICY_REMOVED` in the same unit),
+  `GetPolicy`, `ListPolicies`.
+- Requests: `RaiseManualRequest`, `CancelRequest` (reason `OPERATOR`),
+  `EvaluateSite` (idempotent sweep, one unit per pick face), `GetRequest`,
+  `ListRequests`, `ListPickFaces` (status via the read-only detector).
+- Consumer effects, each behind `Intake` (claims the CloudEvents id in the same
+  unit as the effect): `ApplyBinLevel` (version-guarded, then evaluates the
+  SKU's pick face), `ApplyForwardAssignmentMap` (replaces the site's map,
+  cancels with `ASSIGNMENT_CHANGED`, evaluates new or moved faces),
+  `ApplyZone`, `ApplyLocationRegistered`, `ApplyLocationDecommissioned`,
+  `ApplyRelocation` (acts only on reason `REPLENISHMENT` with a matching
+  `source_ref`; everything else is ignored without error).
+- Forward vs reserve is `usecases.ZoneConfig` (defaults `FWD` / `RSV`, env
+  `RESERVE_ZONE_CODES`), passed in; no globals.
+- In-memory adapters for every port are in `internal/adapters/outbound/memory`
+  (BDD and `go run ./cmd/api` without `DATABASE_URL`). Acceptance scenarios are
+  `features/*.feature`, run as `TestFeatures` from `features_test.go`.
 - Every use case reads event-fed local copies and calls no sibling context.
