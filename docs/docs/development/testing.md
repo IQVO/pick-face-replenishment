@@ -13,11 +13,11 @@ at the top level (sub-tests and table rows are not counted), measured on `develo
 | Layer | Where | Size | Command |
 | --- | --- | --- | --- |
 | Unit | `internal/domain/...`, `internal/application/...`, adapters, `cmd/api` | 285 tests in 56 files without a build tag | `make test` |
-| BDD (godog / Gherkin) | `features/*.feature` + `features_*_test.go` | 4 feature files, 57 scenarios (2 of them outlines) | `make bdd` |
+| BDD (godog / Gherkin) | `features/*.feature` + `features/features_*_test.go` (no Go file at the repo root, enforced by `TestNoGoFilesAtRepoRoot`) | 4 feature files, 66 scenarios and 471 steps once outlines are expanded | `make bdd` |
 | Integration (testcontainers) | files tagged `//go:build integration` | 43 tests in 13 files | `make integration` |
 | Contract | `internal/adapters/inbound/http/contract_internal_test.go`, `internal/testing/repocontract`, golden JSON, `apis/*.yaml` linted by Spectral | see below | `make test`, CI `api-lint` |
 | Mutation | `.gremlins.yaml` over `internal/domain/...` | 4 packages | `make mutation` |
-| Architecture fitness | `internal/architecture` | 22 tests across 9 files | `make arch-test` |
+| Architecture fitness | `internal/architecture` | 23 tests across 10 files | `make arch-test` |
 | Evals | none in this repository | see below | |
 
 ## Unit
@@ -30,8 +30,10 @@ the coverage scope: `repo_lint` rule R11 fails any workflow that sets its own `-
 
 ## BDD (godog)
 
-`TestFeatures` runs every file under `features/` with `Strict: true`. It drives the **real use cases over the in-memory
-adapters**, wired the way `cmd/api` wires them without `DATABASE_URL`, and feeds the local copies through the consumer
+`TestFeatures` (in `features/features_test.go`, package `features_test`, godog `Paths: ["."]`) runs every `.feature` file
+in `features/` with `Strict: true`. The repository root holds no Go file: `TestNoGoFilesAtRepoRoot` fails if one
+appears. It drives the **real use cases over the in-memory
+adapters** (the same use cases `cmd/api` wires over Postgres and Kafka), and feeds the local copies through the consumer
 use cases with the payloads the producers' contracts define. It does not go through HTTP or Kafka. The clock is fixed
 and request ids are sequential (`repl-0001`, ...).
 
@@ -96,6 +98,7 @@ those four, each on its own (the `mutation-fast` CI job, blocking on every PR). 
 | `TestOutboxRelaysPassAttemptCap` | every relay is built with `WithMaxAttempts` |
 | `TestDeadLetterCallsGuardCancellation` | every function that sends to a dead-letter topic checks for a cancelled context (or carries a `//dlq:deterministic` reason), so a message that failed only because of shutdown is never dead-lettered |
 | `TestNoAuthMiddlewareReintroduced` | no auth middleware (fleet decision 2026-09-11) |
+| `TestNoGoFilesAtRepoRoot`, `TestNoGoFilesAtRepoRootSensorBites` | the repository root holds no `.go` file (the godog runner and steps live in `features/`) |
 | `TestMCPAdapterDependencyRule`, `TestMCPOptionalToolInputsCarryOmitempty` | rules for an MCP adapter this service does not have |
 | `TestPostgresIntegrationTestsUseTestcontainers`, `TestKafkaIntegrationTestsUseTestcontainers` | integration tests boot their own containers |
 | `Test...SensorBites` / `...SensorFailsOnBadFixtures` | each sensor is proven to fail on a bad fixture |

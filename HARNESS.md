@@ -115,6 +115,7 @@ already-lived incident, not a hypothetical:
   `0` = unlimited), and a relay package that declares `NewOutboxRelay` must
   also offer `WithMaxAttempts`. Skips when the service has no outbox relay.
 - `internal/architecture/kafka_writer_acks_fitness_test.go` - every production kafka-go `Writer{...}` literal must set `RequiredAcks` (kafka-go defaults to acks=0, fire-and-forget). `TestKafkaWriterAcksSensorBites` proves the sensor fails on bad fixtures.
+- `internal/architecture/no_go_files_at_root_fitness_test.go` - **TestNoGoFilesAtRepoRoot**: the repository root holds no `.go` file, production or test (the godog runner and steps live in `features/`, package `features_test`, `Paths: ["."]`). `TestNoGoFilesAtRepoRootSensorBites` proves the sensor fails when one is added.
 - **TestDeadLetterCallsGuardCancellation** (`kafka_dlq_shutdown_fitness_test.go`,
   + `TestDeadLetterShutdownSensorBites`) — on shutdown a consumer's handler
   failed because its context was cancelled, the retry gave up, and the loop

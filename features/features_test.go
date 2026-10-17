@@ -1,10 +1,11 @@
-// Package main_test hosts the godog (Cucumber for Go) acceptance suite. It
+// Package features_test hosts the godog (Cucumber for Go) acceptance suite
+// next to the .feature files it runs (no Go file lives at the repo root). It
 // drives the REAL use cases (the application layer) over the in-memory
-// adapters, wired the way cmd/api wires them without DATABASE_URL, and feeds
+// adapters, wired like cmd/api wires them over Postgres and Kafka, and feeds
 // the event-fed local copies through the consumer use cases with the payloads
 // the producers' contracts define (ADR 0003). Later steps of the service put
 // the HTTP router and the Kafka consumers in front of the same world.
-package main_test
+package features_test
 
 import (
 	"context"
@@ -20,13 +21,13 @@ import (
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 )
 
-// TestFeatures runs every Gherkin feature under features/.
+// TestFeatures runs every Gherkin feature in this directory.
 func TestFeatures(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: InitializeScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"features"},
+			Paths:    []string{"."},
 			Strict:   true,
 			TestingT: t,
 		},
