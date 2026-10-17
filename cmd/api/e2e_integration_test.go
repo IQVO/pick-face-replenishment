@@ -14,7 +14,6 @@ import (
 	"time"
 
 	ce "github.com/cloudevents/sdk-go/v2/event"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	inboundkafka "github.com/claudioed/pick-face-replenishment/internal/adapters/inbound/kafka"
 	"github.com/claudioed/pick-face-replenishment/internal/testing/kafkatest"
@@ -285,18 +284,22 @@ func assertEnvelope(t *testing.T, m kafkatest.Message, e envelope, typ, schema, 
 	}
 }
 
-// pgView reads the service's database.
+// pgView reads the service's database through pgtest.Scan.
 type pgView struct {
 	t    *testing.T
-	pool *pgxpool.Pool
+	scan func(query string, args []any, dest ...any)
+}
+
+func newPGView(t *testing.T, url string) pgView {
+	t.Helper()
+	pool := pgtest.Open(t, url)
+	return pgView{t: t, scan: func(query string, args []any, dest ...any) { pgtest.Scan(t, pool, query, args, dest...) }}
 }
 
 func (v pgView) count(query string, args ...any) int {
 	v.t.Helper()
 	var n int
-	if err := v.pool.QueryRow(context.Background(), query, args...).Scan(&n); err != nil {
-		v.t.Fatalf("%s: %v", query, err)
-	}
+	v.scan(query, args, &n)
 	return n
 }
 
@@ -304,11 +307,7 @@ func (v pgView) requests() int { return v.count(`SELECT count(*) FROM replenishm
 
 func (v pgView) state(id string) (state string, moved int64) {
 	v.t.Helper()
-	err := v.pool.QueryRow(context.Background(),
-		`SELECT state, moved_quantity FROM replenishment_requests WHERE request_id = $1`, id).Scan(&state, &moved)
-	if err != nil {
-		v.t.Fatalf("request %s: %v", id, err)
-	}
+	v.scan(`SELECT state, moved_quantity FROM replenishment_requests WHERE request_id = $1`, []any{id}, &state, &moved)
 	return state, moved
 }
 
@@ -511,7 +510,7 @@ func phaseReplay(t *testing.T, s *service, e env, w world, db pgView, relocated 
 // restart of the process in the middle and a replay at the end.
 func TestRealEntryPointRunsOnRealPostgresAndKafkaEndToEnd(t *testing.T) {
 	e := newEnv(t, strings.Join(kafkatest.Brokers(t), ","))
-	db := pgView{t: t, pool: pgtest.Open(t, e.dbURL)}
+	db := newPGView(t, e.dbURL)
 	w := buildWorld(t)
 
 	s := e.start(t)
