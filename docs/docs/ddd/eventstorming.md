@@ -80,10 +80,8 @@ flowchart LR
     req["ReplenishmentRequest"]:::aggregate
     completed["Replenishment completed"]:::event
     cancelled["Replenishment cancelled"]:::event
-    hs2["No producer of reason REPLENISHMENT yet"]:::hotspot
 
     inv --> relocated --> match --> req --> completed
-    relocated -.-> hs2
     slot --> approved --> drop --> req
     planner --> cancel --> req
     planner --> remove --> rm --> req
@@ -134,8 +132,9 @@ Source: `internal/application/usecases/{apply_bin_level,apply_forward_assignment
 
 | Hotspot | Where it comes from |
 | --- | --- |
-| Nobody consumes `ReplenishmentRequested` | wes-work-planning has no `REPLENISH` work path; the loop cannot close ([Integration](/docs/ecosystem/integration)) |
-| No producer of reason `REPLENISHMENT` | inventory-storage's `StockRelocated` enum is `SLOTTING`, `CONSOLIDATION`, `MANUAL` |
-| `BinStockLevelChanged` producer absent | the bin copy stays empty, so reserve stock is unknown (`NO_SOURCE`) |
+| Nobody consumes `ReplenishmentRequested` | wes-work-planning has no consumer of `warehouse.pick-face-replenishment.events` and no `REPLENISH` work path, so the loop cannot start ([Integration](/docs/ecosystem/integration)) |
 | An unseen bin reads as level 0 | accepted in ADR 0005: a face whose level has not arrived yet can get an unnecessary, `URGENT` request |
 | Partial fills leave the face below max | the next detection raises a new request once the first is closed (ADR 0002) |
+
+Two earlier hotspots are closed on `develop`: inventory-storage now publishes `BinStockLevelChanged` (its ADR 0040), and
+its `StockRelocated` carries reason `REPLENISHMENT` for a completed `REPLENISH` task (its ADR 0041).

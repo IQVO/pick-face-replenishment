@@ -74,8 +74,8 @@ empty forward pick face, fewer short picks). Evolution: custom-built (genesis).
 | `POST /replenishments/{requestId}/cancel` | command | planner | REST | cancel an open request (`Idempotency-Key`) |
 | `POST /sites/{siteId}/evaluate` | command | planner, agent | REST | sweep a site (`Idempotency-Key`) |
 | `GET /policies`, `/policies/{siteId}/{sku}`, `/pick-faces`, `/replenishments`, `/replenishments/{requestId}` | query | planner, console, agent | REST | read |
-| `com.warehouse.wms.inventory-storage.stock.BinStockLevelChanged` | event | inventory-storage (producer absent today) | Kafka `warehouse.inventory.events` | absolute bin level, versioned |
-| `com.warehouse.wms.inventory-storage.stock.StockRelocated` | event | inventory-storage | Kafka `warehouse.inventory.events` | completes a request when reason is `REPLENISHMENT` |
+| `com.warehouse.wms.inventory-storage.stock.BinStockLevelChanged` | event | inventory-storage | Kafka `warehouse.inventory.events` | absolute bin level, versioned (inventory-storage ADR 0040) |
+| `com.warehouse.wms.inventory-storage.stock.StockRelocated` | event | inventory-storage | Kafka `warehouse.inventory.events` | completes a request when reason is `REPLENISHMENT` (produced for a completed `REPLENISH` task, inventory-storage ADR 0041) |
 | `com.warehouse.wms.slotting-optimization.slotplan.SlotPlanApproved` | event | slotting-optimization | Kafka `warehouse.slotting-optimization.events` | full forward map |
 | `com.warehouse.wms.facility-layout.zone.ZoneRegistered` | event | facility-layout | Kafka `warehouse.facility.events` | zone code per zone |
 | `com.warehouse.wms.facility-layout.locationslot.LocationSlotRegistered` | event | facility-layout | Kafka `warehouse.facility.events` | location, its zone and role |
@@ -113,7 +113,9 @@ multiple), request, projected level, priority, source bin policy, usable stock.
   `FORWARD_ZONE_CODES` (default `FWD`).
 - One SKU per forward slot; the forward bin of a SKU is its slot in the last approved slot plan.
 - A bin never seen reads as level 0 (ADR 0005).
-- The execution chain (work planning, fulfillment, relocation with reason `REPLENISHMENT`) is planned, not built.
+- The execution chain is built from fulfillment-execution onwards (`REPLENISH` task, then a relocation with reason
+  `REPLENISHMENT` in inventory-storage); the first hop, wes-work-planning turning `ReplenishmentRequested` into
+  `REPLENISH` work, is not built.
 
 ## Verification metrics
 
@@ -123,8 +125,11 @@ metrics ([Observability](/docs/operations/observability)).
 
 ## Open questions
 
-- Producer changes P1 (`BinStockLevelChanged`), P3 and P3b (`REPLENISH` work) and P4 (reason `REPLENISHMENT` on
-  `StockRelocated`) are not built, so the loop cannot close (ADR 0001, 0003).
-- slotting-optimization's relocation consumer does not filter on `reason`; ADR 0003 records the (unlikely) clash and assigns the
-  fix to a slotting-optimization PR.
+- Producer changes P3 and P3b (`REPLENISH` work in wes-work-planning) are not built: wes-work-planning has no consumer
+  of `warehouse.pick-face-replenishment.events` and emits no `replenishment` object, so the loop cannot start. P1
+  (`BinStockLevelChanged`, inventory-storage ADR 0040) and P4 (reason `REPLENISHMENT` on `StockRelocated`, its ADR
+  0041) are built, and fulfillment-execution runs the `REPLENISH` task (its ADR 0050) (ADR 0001, 0003).
+- slotting-optimization's relocation consumer acts only on reason `SLOTTING` and counts every other reason, including
+  `REPLENISHMENT`, as unmatched (`internal/application/usecases/record_relocation.go`), so the clash ADR 0003 records
+  no longer exists.
 - No data retention exists for `outbox_events`, `processed_events` and `idempotency_keys` ([Runbook](/docs/operations/runbook#housekeeping)).
