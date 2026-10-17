@@ -37,9 +37,8 @@ fulfillment-execution, applied by inventory-storage as a relocation with reason 
 `StockRelocated`. It is not live: this service is not deployed (`warehouse-infra` has no `pick-face-replenishment` entry:
 no helm values, route or database) and `warehouse-infra` sets no `REPLENISHMENT_MODE` for wes-work-planning, so that
 consumer stays off by default. The `REPLENISH` path must also be seeded in process-path-management before requests can be
-planned. Until a bin changes,
-its level is unknown and detection reports `NO_SOURCE` (inventory-storage has no backfill); the sweep endpoint and the
-pick-face view report this state instead of failing.
+planned. Until a bin changes, its level is unknown and detection reports `NO_SOURCE` (inventory-storage has no backfill);
+the sweep endpoint and the pick-face view report this state instead of failing.
 
 ```mermaid
 flowchart LR

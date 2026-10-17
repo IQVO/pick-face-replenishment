@@ -38,7 +38,7 @@ flowchart LR
     req["ReplenishmentRequest"]:::aggregate
     requested["Replenishment requested"]:::event
     work["wes-work-planning REPLENISH work"]:::external
-    hs1["Nobody consumes ReplenishmentRequested yet"]:::hotspot
+    hs1["Consumer is opt-in and the REPLENISH path needs seeding"]:::hotspot
 
     planner --> declare --> pol --> declared
     levels --> detect
@@ -132,9 +132,10 @@ Source: `internal/application/usecases/{apply_bin_level,apply_forward_assignment
 
 | Hotspot | Where it comes from |
 | --- | --- |
-| Nobody consumes `ReplenishmentRequested` | wes-work-planning has no consumer of `warehouse.pick-face-replenishment.events` and no `REPLENISH` work path, so the loop cannot start ([Integration](/docs/ecosystem/integration)) |
+| `ReplenishmentRequested` is consumed only when wes-work-planning opts in, and only once the `REPLENISH` path is seeded | wes-work-planning plans one `REPLENISH` work unit per request id (its ADR 0042), but its consumer starts only with `REPLENISHMENT_MODE=kafka` and `REPLENISHMENT_CONSUMER_GROUP`; the default `permissive` consumes nothing, and `warehouse-infra` sets neither. The `REPLENISH` path is declared in process-path-management (its ADR 0036) and applied by `scripts/seed_catalogue.py`; until it is seeded in a cluster, wes-work-planning dead-letters the requests. Nothing is deployed ([Integration](/docs/ecosystem/integration)) |
 | An unseen bin reads as level 0 | accepted in ADR 0005: a face whose level has not arrived yet can get an unnecessary, `URGENT` request |
 | Partial fills leave the face below max | the next detection raises a new request once the first is closed (ADR 0002) |
 
-Two earlier hotspots are closed on `develop`: inventory-storage now publishes `BinStockLevelChanged` (its ADR 0040), and
-its `StockRelocated` carries reason `REPLENISHMENT` for a completed `REPLENISH` task (its ADR 0041).
+Three earlier hotspots are closed on `develop`: inventory-storage now publishes `BinStockLevelChanged` (its ADR 0040),
+its `StockRelocated` carries reason `REPLENISHMENT` for a completed `REPLENISH` task (its ADR 0041), and
+wes-work-planning consumes `ReplenishmentRequested` and releases `REPLENISH` work (its ADR 0042).

@@ -28,7 +28,7 @@ flowchart LR
         core["policy, request, detector<br/>local copies of levels, forward map, layout"]:::bc
     end
     subgraph OUT["Outbound"]
-        wp["wes-work-planning (planned)"]:::planned
+        wp["wes-work-planning (opt-in consumer)"]:::ctx
         ana["analytics topic (no consumer)"]:::planned
         ops["ops agent, console (later phase)"]:::planned
     end
@@ -42,7 +42,8 @@ flowchart LR
 ```
 
 Source: `internal/adapters/inbound/http/server.go`, `internal/adapters/inbound/kafka/*_consumer.go`,
-`internal/adapters/outbound/events/encoder.go`, ADR 0001 canvas. Dashed boxes are edges with no consumer or caller yet.
+`internal/adapters/outbound/events/encoder.go`, ADR 0001 canvas. Dashed boxes are edges with no consumer or caller yet. A
+solid box is built on `develop`, not deployed.
 
 ## Name
 
@@ -85,9 +86,9 @@ empty forward pick face, fewer short picks). Evolution: custom-built (genesis).
 
 | Message | Type | Receiver | Channel |
 | --- | --- | --- | --- |
-| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentRequested` | event | wes-work-planning (planned) | Kafka `warehouse.pick-face-replenishment.events` and `.analytics` |
-| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCompleted` | event | anyone | Kafka `...events` and `...analytics` |
-| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCancelled` | event | anyone | Kafka `...events` and `...analytics` |
+| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentRequested` | event | wes-work-planning (plans one `REPLENISH` work unit per request id; opt-in through `REPLENISHMENT_MODE=kafka`, its ADR 0042) | Kafka `warehouse.pick-face-replenishment.events` and `.analytics` |
+| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCompleted` | event | anyone (wes-work-planning ignores it) | Kafka `...events` and `...analytics` |
+| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCancelled` | event | wes-work-planning (withdraws its unit only while `Pending`) and anyone | Kafka `...events` and `...analytics` |
 | `com.warehouse.wms.pick-face-replenishment.policy.ReplenishmentPolicyDeclared` | event | analytics | Kafka `...analytics` only |
 | REST responses | query results | planner, console, agent | REST |
 | `<topic>.dlq` dead letters | event | operators | Kafka |
@@ -113,9 +114,11 @@ multiple), request, projected level, priority, source bin policy, usable stock.
   `FORWARD_ZONE_CODES` (default `FWD`).
 - One SKU per forward slot; the forward bin of a SKU is its slot in the last approved slot plan.
 - A bin never seen reads as level 0 (ADR 0005).
-- The execution chain is built from fulfillment-execution onwards (`REPLENISH` task, then a relocation with reason
-  `REPLENISHMENT` in inventory-storage); the first hop, wes-work-planning turning `ReplenishmentRequested` into
-  `REPLENISH` work, is not built.
+- The execution chain is built end to end on `develop`: wes-work-planning plans one `REPLENISH` work unit per
+  `ReplenishmentRequested` (its ADR 0042; started only with `REPLENISHMENT_MODE=kafka`), process-path-management declares
+  the `REPLENISH` path (its ADR 0036), fulfillment-execution runs the `REPLENISH` task (its ADR 0050) and
+  inventory-storage records a relocation with reason `REPLENISHMENT` (its ADR 0041). The chain is not live: nothing is
+  deployed and `warehouse-infra` sets no `REPLENISHMENT_MODE`.
 
 ## Verification metrics
 
@@ -125,10 +128,13 @@ metrics ([Observability](/docs/operations/observability)).
 
 ## Open questions
 
-- Producer changes P3 and P3b (`REPLENISH` work in wes-work-planning) are not built: wes-work-planning has no consumer
-  of `warehouse.pick-face-replenishment.events` and emits no `replenishment` object, so the loop cannot start. P1
-  (`BinStockLevelChanged`, inventory-storage ADR 0040) and P4 (reason `REPLENISHMENT` on `StockRelocated`, its ADR
-  0041) are built, and fulfillment-execution runs the `REPLENISH` task (its ADR 0050) (ADR 0001, 0003).
+- Producer changes P1 (`BinStockLevelChanged`, inventory-storage ADR 0040), P3 and P3b (`REPLENISH` work in
+  wes-work-planning, its ADR 0042, with the `REPLENISH` path in process-path-management ADR 0036) and P4 (reason
+  `REPLENISHMENT` on `StockRelocated`, inventory-storage ADR 0041) are all built, and fulfillment-execution runs the
+  `REPLENISH` task (its ADR 0050) (ADR 0001, 0003). What remains is operational: the wes-work-planning consumer is off
+  unless `REPLENISHMENT_MODE=kafka` with `REPLENISHMENT_CONSUMER_GROUP` is set (the default `permissive` consumes
+  nothing), the `REPLENISH` path has to be seeded with `scripts/seed_catalogue.py` (until then wes-work-planning
+  dead-letters the requests), and `warehouse-infra` has no entry for this service and sets no `REPLENISHMENT_MODE`.
 - slotting-optimization's relocation consumer acts only on reason `SLOTTING` and counts every other reason, including
   `REPLENISHMENT`, as unmatched (`internal/application/usecases/record_relocation.go`), so the clash ADR 0003 records
   no longer exists.
