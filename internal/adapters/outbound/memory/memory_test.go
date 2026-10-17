@@ -205,13 +205,6 @@ func TestPolicyRepoGuardsAndOrder(t *testing.T) {
 	}
 }
 
-func TestRandomIDsAreValidRequestIDs(t *testing.T) {
-	a, b := memory.RandomIDs{}.NewRequestID(), memory.RandomIDs{}.NewRequestID()
-	if a == b || len(a) != 41 || a[:5] != "repl-" {
-		t.Fatalf("ids %q %q", a, b)
-	}
-}
-
 func TestIdempotencyStoreFirstWriterWins(t *testing.T) {
 	ctx := context.Background()
 	s := memory.NewIdempotencyStore()

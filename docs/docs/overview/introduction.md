@@ -17,8 +17,8 @@ inventory-storage records the matching relocation.
 | --- | --- |
 | Tier | WMS (CloudEvents type segment `wms`, source `/warehouse/pick-face-replenishment`) |
 | Subdomain class | Supporting ([reasoning](/docs/ddd/subdomain-classification)) |
-| Binary | one: `cmd/api` (REST, outbox relay and three optional Kafka consumers in one process) |
-| Datastore | PostgreSQL (in-memory adapters when `DATABASE_URL` is unset) |
+| Binary | one: `cmd/api` (REST, outbox relay and three Kafka consumers in one process, all always on) |
+| Datastore | PostgreSQL (required: there is no in-memory mode, ADR 0006) |
 | Messaging | Kafka, CloudEvents 1.0 structured mode, transactional outbox |
 | Auth | none (fleet decision 2026-09-11) |
 | Repository | `IQVO/pick-face-replenishment`, site `https://iqvo.github.io/pick-face-replenishment/` |

@@ -9,50 +9,52 @@ sidebar_position: 2
 
 `cmd/api` is the only binary. Everything is read from the environment at boot by `cmd/api/main.go`, `config.go`,
 `consumers.go`, `relay.go`, `adapters.go` and `internal/adapters/outbound/postgres/migrate.go`; there are no flags and
-no config file. Test-only variables do not exist in the non-test code.
+no config file. Test-only variables do not exist in the non-test code. Variables marked **yes** in *Required* have no
+default and no fallback.
 
 ## `cmd/api`
 
 | Variable | Default | Required | Meaning | Source |
 | --- | --- | --- | --- | --- |
 | `HTTP_ADDR` | `:8080` | no | Listen address of the HTTP server (`ReadHeaderTimeout` is a fixed 5 s). | `cmd/api/main.go` |
-| `DATABASE_URL` | unset | no | Postgres DSN. Unset selects the in-memory adapters (no outbox, no relay, `Idempotency-Key` not enforced, state lost on restart). Set: the embedded migrations run first, then a pgx pool opens. | `cmd/api/main.go`, `adapters.go` |
+| `DATABASE_URL` | none | **yes** | Postgres DSN. Missing is a boot error (`DATABASE_URL is required: this context runs on real Postgres`). The embedded migrations run first (with boot retry), then a pgx pool opens. There is no in-memory fallback. | `cmd/api/config.go`, `adapters.go` |
 | `MIGRATIONS_DATABASE_URL` | value of `DATABASE_URL` | no | Direct (non-pooled) DSN used only for the boot migrations, because golang-migrate's advisory lock does not survive PgBouncer transaction pooling. | `cmd/api/adapters.go`, `internal/adapters/outbound/postgres/migrate.go` |
-| `KAFKA_BROKERS` | unset | no, but see below | Comma-separated broker list (blanks ignored). With `DATABASE_URL` it switches the outbox relay on; any consumer in `kafka` mode requires it. | `cmd/api/config.go` |
+| `KAFKA_BROKERS` | none | **yes** | Comma-separated broker list (blanks ignored). Missing is a boot error (`KAFKA_BROKERS is required: this context runs on real Kafka`). The outbox relay and the three consumers use it, and so does the `/readyz` check. | `cmd/api/config.go` |
 | `OUTBOX_RELAY_INTERVAL` | `1s` | no | Relay poll interval: a Go duration (`500ms`) or plain seconds (`2`). Unset, malformed or non-positive logs a WARN and uses `1s`. | `cmd/api/config.go`, `relay.go` |
 | `OUTBOX_MAX_ATTEMPTS` | `20` | no | Failures a row may accumulate before the relay stops claiming it. `0` is unlimited; negative or non-numeric logs a WARN and uses `20`. | `cmd/api/config.go`, `relay.go` |
 | `FORWARD_ZONE_CODES` | `FWD` | no | Comma-separated zone codes that are forward pick-face zones. A forward assignment whose bin is in a known zone outside this list is not a pick face. An empty or blank list falls back to the default. | `cmd/api/config.go` |
 | `RESERVE_ZONE_CODES` | `RSV` | no | Comma-separated zone codes whose Storage locations are reserve (source) bins. Same fallback rule. | `cmd/api/config.go` |
-| `INVENTORY_MODE` | `permissive` | no | `kafka` starts the inventory consumer; `permissive` (or empty) does not. Any other value is a boot error. | `cmd/api/consumers.go` |
-| `INVENTORY_CONSUMER_GROUP` | none | when `INVENTORY_MODE=kafka` | Kafka consumer group id of the inventory consumer (never a literal in code). Missing is a boot error. | `cmd/api/consumers.go` |
-| `SLOTTING_MODE` | `permissive` | no | Same, for the slotting consumer. | `cmd/api/consumers.go` |
-| `SLOTTING_CONSUMER_GROUP` | none | when `SLOTTING_MODE=kafka` | Group id of the slotting consumer. | `cmd/api/consumers.go` |
-| `LAYOUT_MODE` | `permissive` | no | Same, for the layout consumer. | `cmd/api/consumers.go` |
-| `LAYOUT_CONSUMER_GROUP` | none | when `LAYOUT_MODE=kafka` | Group id of the layout consumer. | `cmd/api/consumers.go` |
+| `INVENTORY_MODE` | `kafka` | no | The only supported value is `kafka` (or empty). `permissive` is a boot error (`INVENTORY_MODE=permissive is not supported: this context runs on real Kafka`); any other value is a boot error too. | `cmd/api/consumers.go` |
+| `INVENTORY_CONSUMER_GROUP` | none | **yes** | Kafka consumer group id of the inventory consumer (never a literal in code). Missing is a boot error. | `cmd/api/consumers.go` |
+| `SLOTTING_MODE` | `kafka` | no | Same, for the slotting consumer. | `cmd/api/consumers.go` |
+| `SLOTTING_CONSUMER_GROUP` | none | **yes** | Group id of the slotting consumer. | `cmd/api/consumers.go` |
+| `LAYOUT_MODE` | `kafka` | no | Same, for the layout consumer. | `cmd/api/consumers.go` |
+| `LAYOUT_CONSUMER_GROUP` | none | **yes** | Group id of the layout consumer. | `cmd/api/consumers.go` |
 | `SHUTDOWN_DRAIN_DELAY` | `5s` | no | Go duration to wait after `/readyz` flips to 503 and before the listener closes. `0` disables the wait; negative or malformed logs a WARN and uses `5s`. | `cmd/api/config.go` |
 | `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn` (or `warning`), `error`, case-insensitive; anything else is `info`. Logs are JSON on stdout. | `cmd/api/config.go` |
 
+### Mandatory configuration
+
+Postgres and Kafka are the only runtime ([ADR 0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime)).
+`loadBootConfig` refuses to boot (the process exits 1, before it opens a connection or binds the listener) when
+`DATABASE_URL`, `KAFKA_BROKERS` or one of the three `*_CONSUMER_GROUP` variables is empty. Every problem is reported at
+once and each message names its variable.
+
 ### Consumer modes
 
-Each consumer is independent. `permissive` means "no consumer": the local copies are whatever the database holds, which
-is how development and the BDD suite run. `kafka` means the consumer runs and its group variable is mandatory.
-`planConsumers` refuses to boot (the process exits 1) when:
+The three `*_MODE` variables are kept for the deployment contract, but there is one mode: every consumer always runs.
+`planConsumers` refuses to boot when:
 
-- a `*_MODE` is neither `kafka` nor `permissive` (`unknown INVENTORY_MODE "x" (want kafka or permissive)`);
-- a mode is `kafka` without its group (`INVENTORY_MODE=kafka requires INVENTORY_CONSUMER_GROUP`);
-- any consumer is `kafka` and `KAFKA_BROKERS` is empty (`a consumer in kafka mode requires KAFKA_BROKERS`).
+- a `*_MODE` is `permissive` (`INVENTORY_MODE=permissive is not supported: this context runs on real Kafka`);
+- a `*_MODE` is anything else but `kafka` (`unknown INVENTORY_MODE "x" (want kafka)`);
+- a consumer's group variable is empty (`INVENTORY_CONSUMER_GROUP is required: this context runs on real Kafka`).
 
-A consumer in `kafka` mode over the in-memory adapters (no `DATABASE_URL`) starts with a WARN, because the copies are lost
-on restart while the committed offsets are kept.
+### Readiness
 
-### Combinations at a glance
-
-| `DATABASE_URL` | `KAFKA_BROKERS` | Result |
-| --- | --- | --- |
-| unset | unset | in-memory development mode: REST only |
-| set | unset | Postgres, no relay: events pile up in `outbox_events` until brokers are configured (WARN at boot) |
-| set | set | Postgres and the outbox relay publishing to Kafka |
-| set or unset | set, plus `*_MODE=kafka` | the matching consumers also run |
+`GET /readyz` is ready only when the shutdown drain gate is open, Postgres answers a ping and Kafka answers a metadata
+request with a leader for every topic the service consumes or produces. The verdict is cached for 3 s and a round of
+checks is bounded by 2 s. The service never creates topics: a topic that does not exist yet makes `/readyz` answer
+`503` (`dependency-unavailable`, `not ready: kafka`) until infrastructure creates it. `GET /healthz` is liveness only.
 
 ## Fixed values (not configurable)
 

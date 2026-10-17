@@ -15,12 +15,13 @@ Symptom, cause, check and fix, built from the failure modes visible in the code.
 | Symptom | Cause | Check | Fix |
 | --- | --- | --- | --- |
 | Process exits right after start, log `service exited with error` | database unreachable or a migration failed after 5 attempts (about 15 s) | the preceding WARN `retrying` lines name `op` (`run migrations` or `ping postgres`) and the error | fix connectivity, credentials or privileges (DDL needs a direct connection: set `MIGRATIONS_DATABASE_URL`), restart |
-| Exits with `unknown INVENTORY_MODE "x" (want kafka or permissive)` (or the slotting / layout variant) | a `*_MODE` value other than `kafka` or `permissive` | the environment | correct the value |
-| Exits with `INVENTORY_MODE=kafka requires INVENTORY_CONSUMER_GROUP` | mode `kafka` without its group variable | the environment | set the group id (it must stay stable) |
-| Exits with `a consumer in kafka mode requires KAFKA_BROKERS` | a consumer in `kafka` mode and no brokers | `KAFKA_BROKERS` | set it |
-| Pod never becomes ready | the listener starts only after the migrations and the first ping succeeded, and `/readyz` has no other condition | the log: no `http server listening` line means boot is still retrying | see the first row |
-| `/readyz` answers 503 | shutdown began (SIGTERM or SIGINT); it is the only way the gate flips | `shutdown: readiness flipped...` in the log | none, the pod is terminating |
-| Data vanished after a restart | `DATABASE_URL` is unset: in-memory adapters | first log line `DATABASE_URL not configured...` | set `DATABASE_URL` |
+| Exits with `unknown INVENTORY_MODE "x" (want kafka)` (or the slotting / layout variant) | a `*_MODE` value other than `kafka` | the environment | correct the value or unset it (the default is `kafka`) |
+| Exits with `INVENTORY_MODE=permissive is not supported: this context runs on real Kafka` (or the slotting / layout variant) | `permissive` was the old "do not start this consumer" mode and no longer exists | the environment | unset the variable or set `kafka` |
+| Exits with `INVENTORY_CONSUMER_GROUP is required: this context runs on real Kafka` (or the slotting / layout variant) | a consumer group variable is missing | the environment | set the group id (it must stay stable) |
+| Exits with `KAFKA_BROKERS is required: this context runs on real Kafka` | no brokers configured | `KAFKA_BROKERS` | set it |
+| Exits with `DATABASE_URL is required: this context runs on real Postgres` | no database configured: there is no in-memory mode | `DATABASE_URL` | set it |
+| Pod never becomes ready | the listener starts only after the migrations and the first ping succeeded, and `/readyz` also needs Postgres and Kafka reachable | the log: no `http server listening` line means boot is still retrying; otherwise the `/readyz` body names the failing dependency | see the first row, or restore the database or broker |
+| `/readyz` answers 503 | shutdown began (SIGTERM or SIGINT), or Postgres or Kafka is unreachable | `shutdown: readiness flipped...` in the log, or the dependency named in the response | none while the pod is terminating; otherwise restore the dependency |
 
 ## Events not flowing out
 
@@ -35,7 +36,7 @@ Symptom, cause, check and fix, built from the failure modes visible in the code.
 
 | Symptom | Cause | Check | Fix |
 | --- | --- | --- | --- |
-| Local copies stay empty | consumers are in `permissive` mode (the default) | log `no consumer is in kafka mode` | set `*_MODE=kafka` and the group variables |
+| Local copies stay empty | the upstream context has not published yet, or its topic does not exist (infrastructure owns the topics; the service never creates them) | the `kafka topics` boot line, `consumer running` per consumer, and the consumer group's lag on the broker | create the topic or wait for the producer; a new group replays from the first offset |
 | Consumer lag grows on one partition | the same message keeps failing with a transient error and blocks the partition until the 5th attempt | ERROR `handling failed; retrying the same message` with `partition`, `offset`, `attempt` | fix the database or dependency; after 5 attempts the message goes to the `.dlq` topic and the loop continues |
 | Consumer lag grows and the log shows `dead-letter publish failed` or `offset commit failed` | the broker rejects the DLQ write or the commit; both retry forever and never skip | those ERROR lines | restore the broker, check ACLs and topic auto-creation for `<topic>.dlq` |
 | Consumer not running | the goroutine ended | log `consumer stopped` with `error` | restart the process; there is no supervisor inside it |

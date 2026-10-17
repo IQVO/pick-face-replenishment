@@ -10,15 +10,19 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	inboundhttp "github.com/claudioed/pick-face-replenishment/internal/adapters/inbound/http"
+	"github.com/claudioed/pick-face-replenishment/internal/application/repository"
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
+	"github.com/claudioed/pick-face-replenishment/internal/testing/kafkatest"
 	"github.com/claudioed/pick-face-replenishment/internal/testing/pgtest"
 )
 
 // The infrastructure comes from testcontainers, never from the environment.
 func TestMain(m *testing.M) {
 	code := m.Run()
+	kafkatest.Shutdown()
 	pgtest.Shutdown()
 	os.Exit(code)
 }
@@ -33,7 +37,9 @@ type pgService struct {
 
 // bootPostgres boots the service the way main does against a database with NO
 // migrations: boot applies them, wires the Postgres adapters and serves.
-func bootPostgres(t *testing.T) pgService {
+func bootPostgres(t *testing.T) pgService { return bootPostgresZones(t, usecases.ZoneConfig{}) }
+
+func bootPostgresZones(t *testing.T, zones usecases.ZoneConfig) pgService {
 	t.Helper()
 	url := pgtest.EmptyURL(t)
 	ad, closeAdapters, err := buildAdapters(t.Context(), url, url, discardLogger())
@@ -43,9 +49,59 @@ func bootPostgres(t *testing.T) pgService {
 	t.Cleanup(closeAdapters)
 	pool := pgtest.Open(t, url)
 	seedPickFace(t, ad)
-	srv := httptest.NewServer(inboundhttp.NewRouter(buildServer(ad, usecases.ZoneConfig{}, &inboundhttp.Readiness{})))
+	srv := httptest.NewServer(inboundhttp.NewRouter(buildServer(ad, zones, &inboundhttp.Readiness{})))
 	t.Cleanup(srv.Close)
 	return pgService{srv: srv, ad: ad, count: func(table string) int { return pgtest.Count(t, pool, table) }}
+}
+
+func do(t *testing.T, method, url, body string) (int, string, http.Header) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), method, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(raw), resp.Header
+}
+
+// seedPickFace gives SITE-1 the forward bin FWD-1 for SKU-1 (5 on hand) and
+// the reserve bin RSV-1 (100 on hand) through the read-model port, as the
+// consumers would.
+func seedPickFace(t *testing.T, ad adapters) {
+	t.Helper()
+	ctx := t.Context()
+	steps := []error{
+		ad.read.SaveZone(ctx, repository.Zone{ID: "z-fwd", SiteCode: "SITE-1", ZoneCode: "FWD"}),
+		ad.read.SaveZone(ctx, repository.Zone{ID: "z-rsv", SiteCode: "SITE-1", ZoneCode: "RSV"}),
+		ad.read.SaveLocation(ctx, repository.Location{Code: "FWD-1", ZoneID: "z-fwd"}),
+		ad.read.SaveLocation(ctx, repository.Location{Code: "RSV-1", ZoneID: "z-rsv"}),
+		ad.read.ReplaceAssignments(ctx, "SITE-1", repository.MapStamp{PlanID: "p1", ApprovedAt: time.Now()},
+			[]repository.Assignment{{SiteID: "SITE-1", SKU: "SKU-1", Bin: "FWD-1"}}),
+	}
+	for _, err := range steps {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for bin, onHand := range map[string]int64{"FWD-1": 5, "RSV-1": 100} {
+		if _, err := ad.read.ApplyBinLevel(ctx, repository.BinLevel{SiteCode: "SITE-1", Bin: bin, SKU: "SKU-1", OnHand: onHand, Version: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The configured forward zones reach detection: with FWD-1 outside them the
+// face is no pick face.
+func TestZoneConfigReachesDetection(t *testing.T) {
+	svc := bootPostgresZones(t, usecases.ZoneConfig{Forward: []string{"PICK"}})
+	if _, body, _ := do(t, http.MethodGet, svc.srv.URL+"/pick-faces?siteId=SITE-1", ""); body != "{\"items\":[]}\n" {
+		t.Fatalf("pick faces with another forward zone = %q", body)
+	}
 }
 
 func postWithKey(t *testing.T, srv *httptest.Server, path, body, key string) (int, string, http.Header) {

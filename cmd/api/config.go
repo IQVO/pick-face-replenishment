@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -120,4 +122,38 @@ func brokersFromEnv() []string {
 		}
 	}
 	return brokers
+}
+
+// bootConfig is the mandatory configuration of the service: real Postgres,
+// real Kafka and the three consumers' groups. There is no default and no
+// degraded mode behind any of it.
+type bootConfig struct {
+	databaseURL   string
+	migrationsURL string
+	brokers       []string
+	consumers     []plannedConsumer
+}
+
+// loadBootConfig reads and validates the mandatory environment. Every problem
+// is reported at once, each naming its variable, so the process fails fast at
+// boot, before it opens a connection or binds the listener.
+func loadBootConfig() (bootConfig, error) {
+	cfg := bootConfig{databaseURL: os.Getenv("DATABASE_URL"), brokers: brokersFromEnv()}
+	cfg.migrationsURL = migrationsDatabaseURL(cfg.databaseURL)
+	var errs []error
+	if cfg.databaseURL == "" {
+		errs = append(errs, errNoDatabase)
+	}
+	if len(cfg.brokers) == 0 {
+		errs = append(errs, errors.New("KAFKA_BROKERS is required: this context runs on real Kafka"))
+	}
+	consumers, err := planConsumers()
+	if err != nil {
+		errs = append(errs, err)
+	}
+	cfg.consumers = consumers
+	if err := errors.Join(errs...); err != nil {
+		return bootConfig{}, fmt.Errorf("invalid configuration: %w", err)
+	}
+	return cfg, nil
 }
