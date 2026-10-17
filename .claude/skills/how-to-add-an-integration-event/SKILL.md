@@ -1,213 +1,204 @@
 ---
 name: how-to-add-an-integration-event
-description: Publish or consume a cross-service Kafka event: CloudEvents 1.0 type naming, AsyncAPI, transactional outbox, consumer-group rules. Use when touching internal/adapters kafka or outbox code, a publisher/consumer, or apis/asyncapi*.yaml.
+description: Publish or consume a cross-service Kafka event in pick-face-replenishment: CloudEvents 1.0 type naming, AsyncAPI, transactional outbox, consumer-group rules. Use when touching Kafka or outbox adapters, a consumer, or apis/asyncapi.yaml.
 ---
-
-<!-- TEMPLATE NOTE (warehouse-harness-template v2): adapt every repo-specific example in this file (file paths, type names, field names) to THIS repo real code. Do not copy-paste verbatim. -->
 
 # How to add an integration event (publish and consume)
 
-Use when asked to publish a new cross-context integration event, or
-consume one from a sibling bounded context. This fleet's Kafka is ONE
-broker platform-wide — every design decision below exists because that
-shared-broker reality has already caused a real incident once.
+Use when asked to publish a new cross-context integration event, or to consume
+one from a sibling bounded context. This fleet's Kafka is ONE broker
+platform-wide; every design decision below exists because that shared-broker
+reality caused a real incident once.
+
+Layer status: `apis/asyncapi.yaml`, `docs/adr/0004-cloudevents-envelope-and-type-catalogue.md`,
+the CloudEvents helper `internal/adapters/kafka/cloudevents/cloudevents.go` and
+the scaffold writer `internal/adapters/outbound/kafka/writer.go` are
+committed. The outbox, the relay and the consumers are built in wave 2 and are
+described in words below.
 
 ## Publishing a new integration event
 
 ### 1. Is it actually cross-service?
 
-Not every domain event this service raises belongs on the wire. Check
-`internal/adapters/outbound/kafka/publisher.go`'s doc comment — this repo
-forwards only `StockReserved`/`ReservationRevoked`; everything else is a
-local concern published only to the Postgres outbox
-(`internal/adapters/outbound/postgres/event_publisher.go`) for audit, not
-broadcast. Before adding a new event to the Kafka publisher, confirm a
-sibling context genuinely needs to react to it — check
-`docs/docs/ddd/context-map.md` or the equivalent ubiquitous-language doc
-for who's actually downstream.
+Not every domain event belongs on the wire. This service publishes the three
+`Request` events (`ReplenishmentRequested`, `ReplenishmentCompleted`,
+`ReplenishmentCancelled`) on `warehouse.pick-face-replenishment.events` and
+mirrors them on the analytics topic, plus the analytics-only
+`ReplenishmentPolicyDeclared`. Before adding another, confirm a sibling context
+genuinely needs it; the context map is in
+`docs/adr/0001-pick-face-replenishment-bounded-context.md`. Remember the
+exclusion: this service requests a move and never writes the ledger or floor
+tasks.
 
-### 2. Envelope: CloudEvents 1.0, structured mode — MANDATORY
+### 2. Envelope: CloudEvents 1.0, structured mode, MANDATORY
 
-Every message is a CloudEvents 1.0 JSON document in structured content
-mode (Kafka value = `application/cloudevents+json`), with the Kafka header
-`content-type: application/cloudevents+json; charset=UTF-8`. There is no
-other envelope in this fleet — no flat `event_id`/`event_type`/`occurred_at`
-shape, no dual-write, no `EVENT_ENVELOPE_MODE` toggle (see
-`.claude/rules/integration-events.md`; a fitness test enforces it).
+Every message is a CloudEvents 1.0 JSON document (Kafka value =
+`application/cloudevents+json`) with the Kafka header
+`content-type: application/cloudevents+json; charset=UTF-8`. No other envelope
+exists in this fleet: no flat `event_id`/`event_type`/`occurred_at` shape, no
+dual-write, no `EVENT_ENVELOPE_MODE` toggle (see
+`.claude/rules/integration-events.md`; `TestCloudEventsOnly` and
+`TestNoEventEnvelopeToggleOrFlatEnvelope` enforce it).
 
 ```json
 {
   "specversion": "1.0",
   "id": "<uuid v4, minted once, persisted with the outbox row>",
-  "source": "/warehouse/<repo>",
-  "type": "com.warehouse.<subdomain>.<bounded-context>.<entity>.<EventName>",
-  "subject": "<aggregate id>",
+  "source": "/warehouse/pick-face-replenishment",
+  "type": "com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentRequested",
+  "subject": "repl-<uuid>",
   "time": "<domain occurred-at, RFC3339 UTC>",
   "datacontenttype": "application/json",
-  "dataschema": "urn:warehouse:<repo>:events:<EventName>:v1",
-  "data": { "the": "actual payload, business types only" }
+  "dataschema": "urn:warehouse:pick-face-replenishment:events:ReplenishmentRequested:v1",
+  "data": { "request_id": "...", "site_id": "...", "sku": "..." }
 }
 ```
 
-`type` follows the platform-wide reverse-DNS convention
-`com.warehouse.<subdomain>.<bounded-context>.<entity>.<EventName>`, all
-lowercase except the final PascalCase event name — e.g.
-`com.warehouse.wms.inventory-storage.reservation.ReservationRevoked`. Take
-the subdomain/context segment from the subdomain table on warehouse-docs'
-Event Standard page (`docs/strategic-design/event-standard-cloudevents.md`);
-don't guess it. The same `type` is used on the analytics topic; only
-`dataschema` changes (`…:analytics:<EventName>:v1`).
+`type` is `com.warehouse.wms.pick-face-replenishment.<entity>.<EventName>`;
+`<entity>` is the raising aggregate, lowercase with no separators
+(`replenishment` or `policy`). The helper builds it: `cloudevents.Type(entity,
+eventName)`. The same `type` is used on the analytics topic; only `dataschema`
+changes (`...:analytics:<EventName>:v1`). The subdomain table is on the
+CloudEvents event standard page of the warehouse-docs repository; do not guess
+a prefix for a sibling's type.
 
 ### 3. Implementation
 
-Add the event struct to `internal/domain/<aggregate>/` (it should already
-exist as a domain event the aggregate raises — publishing wires an
-EXISTING domain event onto Kafka, it doesn't invent a new payload shape at
-the adapter layer). In the Kafka publisher adapter:
+The event must already exist as a domain event raised by an aggregate (see
+`internal/domain/replenishment/events.go`); publishing maps an EXISTING domain
+event onto the wire, it does not invent a payload shape in the adapter. In the
+outbound adapter (the outbox encoder, built in wave 2):
 
-- Encode ONLY through `internal/adapters/kafka/cloudevents` (copied from
-  this template's `templates/cloudevents/cloudevents.go.tmpl`):
+- Encode ONLY through `internal/adapters/kafka/cloudevents`:
   ```go
   value, err := cloudevents.New(cloudevents.Spec{
-      ID:        evt.ID(),            // minted once; the outbox row stores it
-      Entity:    "reservation",
-      EventName: "ReservationRevoked",
-      Subject:   evt.ReservationID(),
+      ID:        eventID,                 // minted once; the outbox row stores it
+      Entity:    "replenishment",
+      EventName: "ReplenishmentRequested",
+      Subject:   evt.RequestID(),
       Time:      evt.OccurredAt(),
       Stream:    cloudevents.StreamEvents,
       Version:   1,
-      Data:      payload,              // unchanged wire payload
+      Data:      payload,                 // snake_case wire payload
   })
   msg := kafkago.Message{
-      Key:     []byte(evt.ReservationID()),
+      Topic:   topic,                     // per message; never on the Writer
+      Key:     []byte(evt.RequestID()),
       Value:   value,
       Headers: append(traceHeaders, cloudevents.ContentTypeHeader()),
   }
   ```
-- Give the message a partition key that keeps ordering where it matters
-  (the aggregate id) and keep the `kafkago.Hash{}` balancer
-- Use `Topic` — this service's own topic constant
-  (`warehouse.<context>.events`), never a sibling's
+- Write the encoded event into the outbox in the SAME database transaction as
+  the aggregate change; a relay (built on `kafka.NewWriter`) drains it
+  at-least-once. Never call the Writer from a use case. The relay sets the
+  attempt cap (`WithMaxAttempts`, env `OUTBOX_MAX_ATTEMPTS`); see
+  `.claude/rules/fleet/idempotency-and-outbox.md`.
+- Key = the subject (the request id; `<site_id>/<sku>` for the policy event),
+  with the `kafkago.Hash{}` balancer, so all events of one aggregate stay
+  ordered. Use this service's own topic, never a sibling's.
 
 ### 4. Contract + docs
 
-- Add the message to `apis/asyncapi.yaml` under this service's channel
-  (`defaultContentType: application/cloudevents+json`, the shared
-  CloudEvents envelope schema with every attribute required), with its
-  exact `type` const and `dataschema`, matching the entity-grouping
-  convention already there (group by aggregate, not chronologically)
-- Regenerate the AsyncAPI HTML reference:
+- Add the message to `apis/asyncapi.yaml` (the channel, the message with its
+  exact `type` const and `dataschema`, the payload schema).
+- Add the type's line to the catalogue in
+  `docs/adr/0004-cloudevents-envelope-and-type-catalogue.md`;
+  `TestEventCatalogueMatchesContract` (`internal/architecture/catalogue_fitness_test.go`)
+  fails when the two disagree.
+- Update the published table in `.claude/rules/integration-events.md`.
+- Lint the contract the way CI does:
   ```bash
-  cd docs && npm run gen-async-docs:all   # or gen-async-docs, check package.json
+  spectral lint apis/asyncapi.yaml --ruleset .spectral.asyncapi.yaml --fail-severity=warn
   ```
-  This repo's `docs-api-drift` CI job fails the PR if the generated
-  `static/asyncapi/<ctx>/` output doesn't match a fresh regen — a nullable
-  field change here has bitten before.
+- A breaking payload change is a new `.v2` type and dataschema, never a
+  mutation of v1.
 
 ### 5. Test
 
 Add a golden exact-JSON unit test for the new `type` asserting every
-CloudEvents attribute, the `type` string and the `content-type` header,
-against a fake `Writer` (see `publisher_test.go` — never a real broker in
-a unit test). If this event
-now needs a `_integration_test.go` asserting real delivery, it MUST use
-testcontainers (see the fitness test `TestKafkaIntegrationTestsUseTestcontainers`
-in `internal/architecture/` — a skip-gated `KAFKA_BROKERS` test or a
-hardcoded `localhost:9092` fails CI).
+CloudEvents attribute and the `content-type` header, against a fake writer
+(never a real broker in a unit test; the helper's own tests are in
+`internal/adapters/kafka/cloudevents/cloudevents_test.go`). Tests that assert
+real delivery use testcontainers only
+(`TestKafkaIntegrationTestsUseTestcontainers`): a skip-gated `KAFKA_BROKERS`
+test or a hardcoded `localhost:9092` fails CI. Create topics explicitly and
+wait for the leader.
 
 ## Consuming an integration event from a sibling context
+
+The contracts this service consumes are listed in
+`docs/adr/0003-local-copies-and-consumed-contracts.md` (verified against each
+producer's develop branch). Adding a consumed type means updating that ADR, the
+`publish` side of `apis/asyncapi.yaml`, ADR 0004's consumed table and
+`.claude/rules/integration-events.md`.
 
 ### 1. Never import the sibling's Go packages
 
 This service knows a sibling's topic name, its exact CloudEvents `type`
-strings and payload shape ONLY — never its Go types. See `internal/adapters/outbound/facilitycache/consumer.go`'s
-own doc comment: "This service has no business knowing anything else
-about that context beyond this topic name and the envelope/payload shapes
-below." Hand-mirror the payload struct locally; do not add a Go module
-dependency on the sibling repo (an architecture fitness test in most
-repos in this fleet would catch that anyway for the stricter contexts —
-check this repo's own `internal/architecture/` for a
-`TestNoSiblingContextOutboundCalls`-style guard before assuming it's
-allowed).
+strings and the payload shape ONLY, never its Go types. Hand-mirror the
+payload struct locally and restate it in `apis/asyncapi.yaml`. There is also no
+live REST or MCP call to a sibling (ADR 0001, ADR 0003): consume the event into
+a durable local copy and read the copy.
 
 ### 2. Decode CloudEvents only, dispatch on the full `type`
 
 ```go
 evt, err := cloudevents.Decode(msg.Value)
 if err != nil { // errors.Is(err, cloudevents.ErrNotCloudEvent): deterministic poison
-    // existing DLQ path if this consumer has one, else:
     logger.Warn("skipping non-CloudEvents message", "topic", msg.Topic,
         "partition", msg.Partition, "offset", msg.Offset, "err", err)
     return commit(msg) // never crash, never block the partition
 }
-switch evt.Type() {
-case "com.warehouse.wes.fulfillment-execution.task.TaskCompleted": // exact, byte-identical to the producer
-    var p taskCompletedData // local mirror of the payload
-    if err := evt.DataAs(&p); err != nil { /* poison: skip as above */ }
-    // dedupe on evt.ID(); use evt.Time() / evt.Subject() from attributes
-default:
+if evt.Type() != "com.warehouse.wms.inventory-storage.stock.StockRelocated" {
     return commit(msg) // unknown types are ignored, not errors
 }
+var p stockRelocatedData // local mirror of the payload
+if err := evt.DataAs(&p); err != nil { /* poison: skip as above */ }
+// dedupe on evt.ID() in the SAME DB transaction as the effect
 ```
 
-Never parse a legacy flat shape as a fallback, never dispatch on a short
-name or suffix match. Add a test that a legacy flat-envelope message is
-rejected (skipped/DLQ'd), not parsed.
+Dispatch is an `if` chain on the byte-identical full type (the mutation gate
+counts every `case`). Never parse a legacy flat shape as a fallback, never
+match a short name or suffix. Test that a legacy flat-envelope message is
+rejected. Use `FetchMessage` and commit with `CommitMessages` only after the
+effect succeeded; never dead-letter on a cancelled context
+(`//dlq:deterministic` only for poison payloads). Rules:
+`.claude/rules/fleet/kafka-testing-and-consumers.md`.
 
-### 3. Choose the right consumer-group pattern — this is the part that bites
+### 3. Choose the right consumer-group pattern
 
-Two DIFFERENT correct patterns exist. Picking the wrong one for your use
-case is THE most common integration-event mistake in this fleet, and it
-was learned from a real incident (wes-work-planning#67).
+Two different correct patterns exist; picking the wrong one is the most common
+integration-event mistake in this fleet (real incident: wes-work-planning#67).
 
-**Pattern A — long-lived, single-instance consumer group (a named
-constant).** Use when exactly ONE instance of this consumer ever runs at
-a time (e.g. this service's own analytics projector). The group id is a
-plain named constant (`AnalyticsConsumerGroup`), reused across restarts —
-that's correct because Kafka's committed-offset resume semantics are
-EXACTLY what you want: pick up where the single instance left off.
+**Pattern A, stable group from env.** Use when the consumer resumes from its
+committed offset (a durable local copy, a work queue, an analytics projector).
+This is what ALL consumers of this service use: `INVENTORY_CONSUMER_GROUP`,
+`SLOTTING_CONSUMER_GROUP`, `LAYOUT_CONSUMER_GROUP`, each switched on by its mode
+env (`INVENTORY_MODE`, `SLOTTING_MODE`, `LAYOUT_MODE`, default `permissive`;
+`kafka` without its group env is a boot error). The group id is NEVER a string
+literal (`TestKafkaConsumerGroupNeverHardcodedInline`), because a local
+process joining the same group as the live in-cluster Deployment would starve
+one of them.
 
-**Pattern B — per-process-unique consumer group (a generated id).** Use
-when this consumer rebuilds a complete read model from a topic's FULL
-history on every start (an event-sourced local cache, not a work queue) —
-see `facilitycache/consumer.go`'s `consumerGroupPrefix` +
-`uniqueConsumerGroup()`. The group id MUST be unique per process instance
-(hostname+PID+timestamp), NEVER a fixed shared string. Consumer group
-offsets are shared infrastructure state: a brand-new process joining a
-group an EARLIER instance already consumed resumes from that instance's
-committed offset, so the new process gets marked "ready" with an empty
-local cache having replayed nothing — a silent correctness bug, not a
-crash.
+**Pattern B, per-process-unique group.** Use only when a consumer rebuilds an
+in-memory read model from a topic's FULL history on every start. The group id
+must then be unique per process instance (hostname, PID, timestamp), otherwise
+a new process resumes from an earlier instance's committed offset and is marked
+ready with an empty cache. See the Kafka section of `HARNESS.md`. This service
+has no such consumer; adding one needs an ADR.
 
-**Never do this** (the actual incident): a fixed shared consumer group id
-on a consumer meant to run as exactly one instance per environment. When
-a local dev/test harness process joins the SAME broker's SAME group as a
-live in-cluster Deployment, Kafka's rebalance protocol hands the
-partition to only ONE of the two group members — the other silently
-starves. Fix: make the group id env-configurable
-(`KAFKA_CONSUMER_GROUP`/`<SERVICE>_CONSUMER_GROUP`), never hardcode it as
-a literal string. This fleet's `internal/architecture/`
-`TestKafkaConsumerGroupNeverHardcodedInline` fitness test (where present)
-enforces this statically — an inline `GroupID: "literal"` fails CI.
+### 4. Local copies and idempotency
 
-### 4. Readiness gate, if this consumer backs a local cache
-
-If the consumer replays a topic's full history to build a cache other
-code depends on, expose a `Ready()` gate the health check consults, and
-block readiness (not process startup — a transient Kafka outage
-shouldn't be fatal) until the initial replay finishes. A readiness check
-that only re-evaluates on a NEW message arriving deadlocks forever on an
-ordinary restart where a shared/already-caught-up group never gets a new
-message to trigger it — use `OffsetFetch` against the group's committed
-offset, or (simpler and less bug-prone) just use the per-process-unique
-group pattern above, which sidesteps the whole class of bug.
+A consumer that feeds a local copy applies the change and writes the CloudEvents
+`id` claim in ONE transaction, so redelivery is a no-op. Where the producer
+sends absolute levels with a per-key `version` (`BinStockLevelChanged`), apply
+only a strictly greater version. Where it sends a full map (`SlotPlanApproved`),
+replace the site's rows wholesale. An empty or stale copy yields `NO_SOURCE` or
+`NO_POLICY` downstream, never a guess.
 
 ## Verify before opening the PR
 
 ```bash
-make check-all    # includes arch-test — will catch a sibling-package import
+make check-all    # includes arch-test; catches a sibling-package import
+make integration  # needs Docker; boots Postgres/Kafka with testcontainers
 ```
-
-Prove any new fitness-test-adjacent behavior actually matters by running
-the specific scenario against a real broker if this repo has
-testcontainers-based integration tests for the consumer/publisher touched.

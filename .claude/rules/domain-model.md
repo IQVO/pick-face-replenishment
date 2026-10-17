@@ -1,23 +1,102 @@
-<!-- TEMPLATE (warehouse-harness-template v2): fill in for THIS repo. -->
 # Domain model: ubiquitous language, aggregates, events, use cases
+
+pick-face-replenishment is the WMS-tier owner of forward pick-face
+replenishment (ADR 0001): it holds a min/max policy per forward pick face,
+raises a request to move stock from a reserve bin when the face runs low, and
+closes the request when the ledger records the move. It never writes the stock
+ledger and never creates floor tasks. Source of truth: `docs/adr/0002-aggregates-and-detection-policy.md`.
 
 ## Ubiquitous Language (use these exact names)
 
-- **<Aggregate>** — <one-sentence definition and the core invariant it
-  protects>.
-- <...more terms as needed. Keep every term's definition to 1-3 lines;
-  this file is read on every task, so it must stay skimmable.>
+- **Pick face / forward bin** — a forward bin holding one SKU, assigned by the
+  site's latest approved slot plan. Its level (`OnHand`, `Reserved`) is a read
+  model, not aggregate state.
+- **Reserve bin** — a Storage location in a zone listed in `RESERVE_ZONE_CODES`
+  (default `RSV`); the only legal source of a request.
+- **Policy** (`ReplenishmentPolicy`) — explicit MIN_MAX rule per (site, SKU):
+  `MinQty`, `MaxQty`, `Multiple`, `Version`.
+- **Request** (`ReplenishmentRequest`) — one decision to move `quantity` units of
+  one SKU from one reserve bin to one forward bin, and how it ended.
+- **Available / Projected** — `Available = OnHand - Reserved`;
+  `Projected = Available + the open request's quantity` (inbound not arrived yet).
+- **Priority** — `URGENT` when `Available <= 0` at detection, else `NORMAL`.
+- **Usable stock** — a reserve bin's `OnHand - Reserved`.
+- **SourceBinPolicy** — the port that picks the reserve bin; v1 is
+  `fullest-reserve-bin-v1`.
+- **Relocation** — the part of inventory-storage's `StockRelocated` that can
+  complete a request (reason `REPLENISHMENT`, `source_ref` = request id).
 
 ## Aggregates
 
-- **<Aggregate>** (`internal/domain/<pkg>`): <invariants it enforces,
-  what makes it an aggregate boundary rather than a plain value object>.
+- **Request** (`internal/domain/replenishment`, type `Request`, the richest
+  aggregate): states `Requested -> Completed | Cancelled` (both terminal);
+  `Version` is 1 when planned, +1 per transition. Only `Plan`, `Complete`,
+  `Cancel`, `Snapshot` and `Restore` build or change it; `Restore` validates
+  everything so a corrupt row never becomes a live aggregate. Invariants:
+  1. at most ONE open request per (site, forward bin, SKU) — spans requests, so
+     the use case enforces it and a partial unique index backs it (not in the aggregate);
+  2. `quantity >= 1` and `projected + quantity <= policy max` (`Plan`,
+     `ErrQuantityBelowOne`, `ErrExceedsMax`);
+  3. source differs from the forward bin, same site, reserve zone, and
+     `quantity <= source usable` (`Plan`, `Source`, `ErrSource*`);
+  4. completion only by a `Relocation` with reason `REPLENISHMENT`
+     (`RelocationReason`), `SourceRef` = request id and matching SKU, from bin
+     and to bin (`Complete`); the moved quantity (>= 1, may be less than
+     requested) is recorded;
+  5. cancel reasons are `OPERATOR`, `ASSIGNMENT_CHANGED`, `POLICY_REMOVED`
+     (`CancelReason`); `Cancel` rejects an unknown reason.
+- **Policy** (`internal/domain/policy`, type `Policy`): versioned value object,
+  one per (site, SKU). Site and SKU non-blank, `0 <= MinQty < MaxQty`,
+  `Multiple >= 1`, `Version >= 1`. `New` starts at version 1, `Restore`
+  re-validates a row, `WithBounds` returns a new value at `Version + 1`
+  (backs REST `If-Match`). `RoundDown(n)` rounds a quantity DOWN to a multiple
+  so a request never overfills the face. `Declaration(at)` is the fact behind
+  `ReplenishmentPolicyDeclared`.
+- **Detector** (`internal/domain/detection`): not an aggregate; the pure
+  function `Detect(Input, SourceBinPolicy) Outcome` (no I/O, no clock, same
+  input in any slice order gives the same outcome). Verdicts (`Kind`):
+  `KindRaise`, `KindHealthy`, `KindAlreadyOpen`, `KindNoPolicy`, `KindNoSource`.
+  Order: no policy, open request, `Projected > MinQty` healthy, else
+  `need = MaxQty - Projected` rounded down, source chosen and capped at its
+  usable stock, rounded down again.
+- `internal/domain/shared`: `IsBlank`, the ECMA-262 blank-string rule matching
+  the contract's `pattern: '\S'`.
 
 ## Domain events
 
-- `<EventName>` — <when it's raised, what state change it represents>.
+Plain facts raised by `Request` (`internal/domain/replenishment/events.go`),
+carrying request id, site, version after the change and the caller's time. They
+know nothing of CloudEvents or Kafka; the outbound adapter maps them to the
+wire (ADR 0004).
 
-## Key use cases (`internal/application/usecases`)
+- `ReplenishmentRequested` — raised by `Plan` when a request opens.
+- `ReplenishmentCompleted` — raised by `Complete`; carries the moved quantity.
+- `ReplenishmentCancelled` — raised by `Cancel`; carries the reason.
+- `ReplenishmentPolicyDeclared` — analytics-only; built from
+  `Policy.Declaration`, not raised by `Request`.
 
-- `<UseCaseName>` — <one line: what it orchestrates, which port(s) it
-  calls>.
+## Policy ports (versioned, replaceable)
+
+- `SourceBinPolicy` (`Name()`, `Choose(forwardBin, reserve) (ReserveBin, bool)`)
+  in `internal/domain/detection/source.go`. `FullestReserve` is
+  `fullest-reserve-bin-v1`: largest usable stock (at least 1), ties to the
+  lexically smallest bin code; allows a partial fill. A new policy is a new
+  type with a new name and an ADR.
+- The MIN_MAX rule is the `Policy` value itself; a demand-cover policy would be
+  a second policy kind behind the same shape.
+
+## Key use cases
+
+The application layer is built in wave 2; none of it is committed yet. The
+intended use cases follow `apis/openapi.yaml` (`operationId` in
+`.claude/rules/rest-api.md`) plus the event consumers of ADR 0003:
+
+- Policy commands: `DeclarePolicy`, `RemovePolicy` (cancels open requests with
+  `POLICY_REMOVED` in one transaction), `GetPolicy`, `ListPolicies`.
+- Request commands: `RequestReplenishment`, `CancelReplenishment`,
+  `EvaluateSite` (sweep that converges), plus the queries `GetReplenishment`,
+  `ListReplenishments`, `ListPickFaces`.
+- Consumer-driven: apply a bin stock level, replace a site's forward
+  assignments (cancelling requests with `ASSIGNMENT_CHANGED`), maintain
+  locations, and complete a request from a matching `StockRelocated`.
+- Every use case reads event-fed local copies and calls no sibling context.

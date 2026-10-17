@@ -1,83 +1,77 @@
 ---
 name: architecture-review
-description: Bounded-context boundary and ADR-compliance review of a change (expensive, post-integration): hexagonal direction, cross-context coupling, contradicted ADRs. Invoke explicitly: /architecture-review [range].
+description: Bounded-context boundary and ADR-compliance review of a pick-face-replenishment change (expensive, post-integration): hexagonal direction, cross-context coupling, contradicted ADRs. Invoke explicitly: /architecture-review [range].
 disable-model-invocation: true
 argument-hint: "[git range]"
 ---
 
-<!-- TEMPLATE NOTE (warehouse-harness-template v2): adapt every repo-specific example in this file (file paths, type names, field names) to THIS repo real code. Do not copy-paste verbatim. -->
-
 Perform a bounded-context boundary and ADR-compliance review of the
 current changes (or `$ARGUMENTS` if given, e.g. a branch/PR diff range).
 
-This is EXPENSIVE relative to `/code-review` — it reasons about
-cross-repo/cross-context implications, not just this diff's local
-correctness. Use it post-integration (before merging a PR that touches
-architecture, not on every small commit) or when asked explicitly to
-check a design decision against this fleet's standing architecture.
+This is EXPENSIVE relative to `/code-review`: it reasons about cross-context
+implications, not just this diff's local correctness. Use it before merging a
+PR that touches architecture (a new adapter, a new consumed topic, a new
+published type), not on every small commit.
 
 ## What to check, in priority order
 
-1. **Hexagonal dependency direction.** Domain depends on nothing;
-   application depends on domain+ports; adapters depend on
-   application+domain; only `cmd/` wires every layer together. Run
-   `go test ./internal/architecture/... -v` first — if it's already red,
-   report that and stop; don't hand-review what a fitness test already
-   caught.
-2. **Customer/Supplier direction, per `.claude/rules/domain-model.md`
-   (or this repo's equivalent doc).** A new outbound call to a sibling
-   context must go the direction ADRs already established — check
-   `docs/docs/adr/` for the relevant context-mapping ADR before assuming
-   a new integration is fine. Flag any outbound call added to a context
-   this repo doesn't already integrate with; that's a new architectural
-   decision that needs its own ADR, not a code change slipped in
-   silently.
-3. **MCP additive-boundary rule (ADR-0008 fleet-wide).** A change under
-   `internal/adapters/inbound/mcp/` must depend only on
-   application/domain, and nothing else in the codebase may depend on
-   it. If this repo has a `TestMCPAdapterDependencyRule` fitness test,
-   confirm it's green; if not, check by eye.
-2b. **Zero-write guardrails, where applicable.** If this repo has a
-   documented zero-write constraint (e.g. warehouse-ops-agent v1), check
-   no mutating HTTP method or MCP tool without `ReadOnlyHint: true` was
-   added to an outbound/inbound surface bound by that constraint.
-4. **Analytics isolation (ADR-0006-style, where this repo has an
-   `internal/analytics/` read side).** The OLTP domain/application layers
-   must never import the analytics store or read model; the analytics
-   side must depend on nothing internal except itself. This is a real,
-   already-fitness-tested rule in most repos — confirm the test exists
-   and is green rather than re-deriving it by eye if possible.
-5. **Kafka consumer-group pattern correctness.** A new Kafka consumer
-   must use either (a) a named long-lived constant for a genuinely
-   single-instance consumer, or (b) a per-process-unique generated group
-   id for an event-sourced local-cache consumer that replays full
-   history on every start. Flag any new consumer whose pattern doesn't
-   match its actual replay behavior — this is a correctness bug, not a
-   style issue (see this repo's `.claude/skills/how-to-add-an-integration-event/SKILL.md`
-   for the two patterns and the incident that taught this fleet the
-   difference).
-6. **A new bounded-context integration with no companion documentation.**
-   If this change introduces or changes a cross-repo contract (a new
-   REST call, a new Kafka topic subscription, a new MCP tool consumed by
-   a sibling), check whether an ADR documents the decision — and whether
-   a companion ADR should exist in the OTHER repo too, per this fleet's
-   companion-ADR convention (see `.claude/skills/how-to-write-an-adr/SKILL.md`).
-7. **Auth-reintroduction and sibling-call bans**, same as `/code-review`
-   items 6-8, but reasoned about more thoroughly here — check not just
-   "is there a Bearer literal" but "does this change's INTENT require
-   re-litigating the fleet-wide auth-removal decision," which would need
-   its own ADR, not a silent code change.
+1. **Hexagonal dependency direction.** Domain (`internal/domain/...`) imports
+   nothing internal but domain; the application layer depends on domain and
+   ports; adapters never import each other; only `cmd/` wires. Run
+   `go test ./internal/architecture/... -v` first (`TestHexagonalArchitecture`
+   in `internal/architecture/architecture_test.go`). If it is red, report that
+   and stop; do not hand-review what a fitness test already caught.
+2. **No live sibling call (ADR 0001 exclusions, ADR 0003).** This service has
+   no outbound HTTP or MCP client; stock levels, forward assignments and
+   locations arrive as events into local copies. Flag any new outbound call to
+   inventory-storage, slotting-optimization, facility-layout,
+   wes-work-planning or any other context: it is a new architectural decision
+   and needs its own ADR in `docs/adr/`.
+3. **Ownership boundary (ADR 0001).** pick-face-replenishment requests a move;
+   it never writes the stock ledger and never creates floor tasks. Flag code
+   that records stock, plans a task, or sets task state.
+4. **Domain stays pure (ADR 0002).** `internal/domain/replenishment`,
+   `policy`, `detection` and `shared` import no CloudEvents, Kafka, HTTP or SQL
+   code and read no clock; time arrives as a parameter. `detection.Detect`
+   stays a pure function whose result does not depend on slice order.
+5. **MCP additive-boundary rule.** A change under the inbound MCP adapter
+   (built in a later wave) must depend only on application and domain, and
+   nothing else may depend on it. `TestMCPAdapterDependencyRule` in
+   `internal/architecture/fitness_test.go` enforces it; confirm it is green.
+6. **Consumed contracts match the producer (ADR 0003, ADR 0004).** Type strings
+   in `apis/asyncapi.yaml` are byte-identical to the producer's catalogue;
+   `TestEventCatalogueMatchesContract` ties asyncapi to ADR 0004. A change to a
+   consumed or published type needs the asyncapi, ADR 0004 and
+   `.claude/rules/integration-events.md` updated together. Breaking payload
+   change means a new `.v2` type, never a mutation.
+7. **Kafka consumer-group pattern.** Group ids come from env
+   (`INVENTORY_CONSUMER_GROUP`, `SLOTTING_CONSUMER_GROUP`,
+   `LAYOUT_CONSUMER_GROUP`), never an inline literal
+   (`TestKafkaConsumerGroupNeverHardcodedInline`). These consumers feed durable
+   copies and resume from the committed offset, so a stable group is correct; a
+   consumer that replays from FirstOffset into memory needs a per-process-unique
+   group (see the Kafka section of `HARNESS.md`). Flag a pattern that does not
+   match the consumer's replay behaviour: it is a correctness bug.
+8. **Events leave through the outbox only.** No direct `Writer.WriteMessages`
+   from a use case; the relay sets `Message.Topic` per message
+   (`TestKafkaWriterTopicNotSetTwice`) and caps attempts
+   (`TestOutboxRelaysPassAttemptCap`). See
+   `.claude/rules/fleet/idempotency-and-outbox.md`.
+9. **A new cross-repo contract with no ADR.** A new REST call, topic
+   subscription or planned edge needs an ADR here and, by the fleet convention,
+   a companion ADR in the OTHER repo (see `.claude/skills/how-to-write-an-adr/SKILL.md`).
+10. **Auth reintroduction.** Fleet-wide auth was reverted on 2026-09-11. Check
+    not only for a Bearer literal but whether the change's intent requires
+    re-litigating that decision; that needs its own ADR
+    (`TestNoAuthMiddlewareReintroduced`).
 
 ## Output format
 
-State clearly: PASS (no architectural concerns), CONCERNS (list them,
-each tied to the specific rule/ADR it would violate), or NEEDS-ADR (the
-change is architecturally sound but undocumented — name what the ADR
-should cover). Cite the specific file/rule/ADR for every finding; a
-finding with no citation is not actionable.
+State clearly: PASS (no architectural concerns), CONCERNS (list them, each
+tied to the specific rule or ADR it would violate), or NEEDS-ADR (the change is
+sound but undocumented; name what the ADR should cover). Cite the file, rule or
+ADR for every finding; a finding with no citation is not actionable.
 
-This is advisory. It never blocks a merge on its own, and it never
-modifies files. If a finding conflicts with a decision explicitly stated
-in this repo's own AGENTS.md/CLAUDE.md, defer to that document and say
-so — this command reasons about the fleet's general conventions, not a
-higher authority than the repo's own explicit guidance.
+This is advisory. It never blocks a merge on its own and never modifies files.
+If a finding conflicts with a decision stated in an accepted ADR of this repo,
+defer to the ADR and say so.
