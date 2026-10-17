@@ -8,11 +8,18 @@
 //	DATABASE_URL              Postgres DSN; unset = in-memory adapters (development)
 //	MIGRATIONS_DATABASE_URL   direct DSN for the boot migrations (default DATABASE_URL)
 //	KAFKA_BROKERS             comma-separated brokers; the outbox relay runs when this
-//	                          is set (and DATABASE_URL is)
+//	                          is set (and DATABASE_URL is); required by any *_MODE=kafka
 //	OUTBOX_RELAY_INTERVAL     relay poll interval (Go duration or seconds, default 1s)
 //	OUTBOX_MAX_ATTEMPTS       failures before the relay excludes a row (default 20, 0 = unlimited)
 //	FORWARD_ZONE_CODES        comma-separated zone codes of forward pick faces (default FWD)
 //	RESERVE_ZONE_CODES        comma-separated zone codes of reserve bins (default RSV)
+//	INVENTORY_MODE, SLOTTING_MODE, LAYOUT_MODE
+//	                          kafka | permissive (default permissive = consumer not started)
+//	INVENTORY_CONSUMER_GROUP, SLOTTING_CONSUMER_GROUP, LAYOUT_CONSUMER_GROUP
+//	                          stable group ids; required when the mode is kafka
+//	                          (inventory-storage's BinStockLevelChanged and StockRelocated,
+//	                          slotting-optimization's SlotPlanApproved, facility-layout's
+//	                          zone and location events; ADR 0003)
 //	SHUTDOWN_DRAIN_DELAY      wait after flipping /readyz before closing (default 5s)
 //	LOG_LEVEL                 debug | info | warn | error (default info)
 package main
@@ -58,21 +65,29 @@ func run() error {
 	defer closeAdapters()
 
 	readiness := &inboundhttp.Readiness{}
+	zones := zoneConfigFromEnv()
 	httpServer := &http.Server{
 		Addr:              getenv("HTTP_ADDR", ":8080"),
-		Handler:           inboundhttp.NewRouter(buildServer(ad, zoneConfigFromEnv(), readiness)),
+		Handler:           inboundhttp.NewRouter(buildServer(ad, zones, readiness)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	relay, stopRelay := startOutboxRelay(ad.outbox, brokersFromEnv(), logger)
-	return serveUntilSignal(logger, httpServer, readiness, relay, stopRelay)
+	brokers := brokersFromEnv()
+	consumers, stopConsumers, err := startConsumers(ad, zones, brokers, databaseURL != "", logger)
+	if err != nil {
+		return err
+	}
+	relay, stopRelay := startOutboxRelay(ad.outbox, brokers, logger)
+	return serveUntilSignal(logger, httpServer, readiness, consumers, stopConsumers, relay, stopRelay)
 }
 
 // serveUntilSignal runs httpServer until SIGINT/SIGTERM (or a listen error),
 // then shuts down in the fleet order: (1) /readyz flips to 503, (2) wait the
-// drain delay, (3) drain HTTP, (4) stop and await the relay LAST so nothing
-// committed above is stranded; the caller's deferred pool.Close runs after all
-// of it.
-func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *inboundhttp.Readiness, relay *worker, stopRelay func()) error {
+// drain delay, (3) drain HTTP, (4) stop and await the consumers, (5) stop and
+// await the relay LAST so nothing committed above is stranded; the caller's
+// deferred pool.Close runs after all of it.
+func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *inboundhttp.Readiness,
+	consumers []*worker, stopConsumers func(), relay *worker, stopRelay func(),
+) error {
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("http server listening", "addr", httpServer.Addr)
@@ -85,8 +100,7 @@ func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *i
 	defer stop()
 	select {
 	case err := <-errCh:
-		stopRelay()
-		await(logger, relay, workerDrainTimeout)
+		stopWorkers(logger, consumers, stopConsumers, relay, stopRelay)
 		return err
 	case <-ctx.Done():
 	}
@@ -100,9 +114,19 @@ func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *i
 	defer cancel()
 	err := httpServer.Shutdown(shutdownCtx)
 
+	stopWorkers(logger, consumers, stopConsumers, relay, stopRelay)
+	return err
+}
+
+// stopWorkers stops and awaits the consumers, then the relay: the consumers
+// may still enqueue outbox rows while they drain, so the relay goes last.
+func stopWorkers(logger *slog.Logger, consumers []*worker, stopConsumers func(), relay *worker, stopRelay func()) {
+	stopConsumers()
+	for _, w := range consumers {
+		await(logger, w, workerDrainTimeout)
+	}
 	stopRelay()
 	await(logger, relay, workerDrainTimeout)
-	return err
 }
 
 // await waits (bounded by timeout) for w to return; nil w is a no-op.

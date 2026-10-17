@@ -26,6 +26,8 @@ type adapters struct {
 	uow      ports.UnitOfWork
 	clock    ports.Clock
 	ids      ports.IDGenerator
+	// processed is the consumers' processed-event claim table.
+	processed ports.ProcessedEvents
 
 	// outbox is the relay's view of the outbox table; nil in the in-memory
 	// development mode, which has no relay.
@@ -67,10 +69,10 @@ func buildAdapters(ctx context.Context, databaseURL, migrationsURL string, logge
 
 func memoryAdapters() adapters {
 	policies, requests, read := memory.NewPolicyRepo(), memory.NewRequestRepo(), memory.NewReadModel()
-	log := memory.NewEventLog()
+	log, processed := memory.NewEventLog(), memory.NewProcessedEventRepo()
 	return adapters{
-		policies: policies, requests: requests, read: read, events: log,
-		uow:   memory.NewUnitOfWork(policies, requests, read, log),
+		policies: policies, requests: requests, read: read, events: log, processed: processed,
+		uow:   memory.NewUnitOfWork(policies, requests, read, log, processed),
 		clock: memory.SystemClock{}, ids: memory.RandomIDs{},
 	}
 }
@@ -81,7 +83,8 @@ func postgresAdapters(pool *pgxpool.Pool) adapters {
 		policies: postgres.NewPolicyRepo(pool), requests: postgres.NewRequestRepo(pool), read: postgres.NewReadModel(pool),
 		events: events.NewSink(ob), uow: postgres.NewUnitOfWork(pool),
 		clock: memory.SystemClock{}, ids: memory.RandomIDs{},
-		outbox: ob,
+		processed: postgres.NewProcessedEventRepo(pool),
+		outbox:    ob,
 	}
 	ad.idempotency = inboundhttp.NewIdempotency(postgres.NewIdempotencyStore(pool), ad.uow, ad.clock).Middleware
 	return ad
@@ -94,6 +97,11 @@ func (a adapters) evaluator(zones usecases.ZoneConfig) usecases.Evaluator {
 		Policies: a.policies, Requests: a.requests, Read: a.read, Events: a.events,
 		Clock: a.clock, IDs: a.ids, Zones: zones,
 	}
+}
+
+// intake is the claim-and-apply skeleton every consumer use case shares.
+func (a adapters) intake() usecases.Intake {
+	return usecases.Intake{UoW: a.uow, Processed: a.processed}
 }
 
 // buildServer wires the use cases into the HTTP adapter.

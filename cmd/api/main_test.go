@@ -188,8 +188,8 @@ func freeAddr(t *testing.T) string {
 }
 
 // The fleet shutdown order: SIGTERM flips /readyz, drains HTTP, then stops the
-// relay. The test traps SIGTERM itself first so the signal can never kill the
-// test binary before serveUntilSignal has registered.
+// consumers and, LAST, the relay. The test traps SIGTERM itself first so the
+// signal can never kill the test binary before serveUntilSignal has registered.
 func TestServeUntilSignalShutsDownInOrder(t *testing.T) {
 	t.Setenv("SHUTDOWN_DRAIN_DELAY", "0")
 	trap := make(chan os.Signal, 1)
@@ -198,12 +198,16 @@ func TestServeUntilSignalShutsDownInOrder(t *testing.T) {
 
 	readiness := &inboundhttp.Readiness{}
 	srv := &http.Server{Addr: freeAddr(t), Handler: http.NewServeMux(), ReadHeaderTimeout: time.Second}
+	var order []string
+	consumer := &worker{name: "consumer", done: make(chan struct{})}
 	relay := &worker{name: "relay", done: make(chan struct{})}
-	stopped := make(chan struct{})
-	stopRelay := func() { close(stopped); close(relay.done) }
+	stopConsumers := func() { order = append(order, "consumers"); close(consumer.done) }
+	stopRelay := func() { order = append(order, "relay"); close(relay.done) }
 
 	result := make(chan error, 1)
-	go func() { result <- serveUntilSignal(discardLogger(), srv, readiness, relay, stopRelay) }()
+	go func() {
+		result <- serveUntilSignal(discardLogger(), srv, readiness, []*worker{consumer}, stopConsumers, relay, stopRelay)
+	}()
 	waitListening(t, srv.Addr)
 
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
@@ -220,10 +224,8 @@ func TestServeUntilSignalShutsDownInOrder(t *testing.T) {
 	if readiness.Ready() {
 		t.Fatal("/readyz must be flipped to not-ready on shutdown")
 	}
-	select {
-	case <-stopped:
-	default:
-		t.Fatal("the relay was not stopped")
+	if strings.Join(order, ",") != "consumers,relay" {
+		t.Fatalf("stop order = %v, want the consumers first and the relay last", order)
 	}
 }
 
@@ -245,12 +247,13 @@ func TestServeUntilSignalReturnsAListenError(t *testing.T) {
 	}
 	defer l.Close()
 	srv := &http.Server{Addr: l.Addr().String(), Handler: http.NewServeMux(), ReadHeaderTimeout: time.Second}
-	stopped := false
-	err = serveUntilSignal(discardLogger(), srv, &inboundhttp.Readiness{}, nil, func() { stopped = true })
+	var stopped []string
+	err = serveUntilSignal(discardLogger(), srv, &inboundhttp.Readiness{}, nil,
+		func() { stopped = append(stopped, "consumers") }, nil, func() { stopped = append(stopped, "relay") })
 	if err == nil || errors.Is(err, http.ErrServerClosed) {
 		t.Fatalf("want the listen error, got %v", err)
 	}
-	if !stopped {
-		t.Fatal("the relay must be stopped when the server cannot listen")
+	if strings.Join(stopped, ",") != "consumers,relay" {
+		t.Fatalf("stopped = %v: the consumers and the relay must be stopped when the server cannot listen", stopped)
 	}
 }
