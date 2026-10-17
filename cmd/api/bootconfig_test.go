@@ -102,19 +102,19 @@ func TestRunFailsFastBeforeBindingTheListener(t *testing.T) {
 	}
 }
 
-func TestRuntimeTopicsListEveryConsumedAndProducedTopic(t *testing.T) {
-	got := strings.Join(runtimeTopics(), ",")
+func TestConsumedAndProducedTopicsAreTheContractTopics(t *testing.T) {
+	got := strings.Join(append(consumedTopics(), producedTopics()...), ",")
 	want := "warehouse.inventory.events,warehouse.slotting-optimization.events,warehouse.facility.events," +
 		"warehouse.pick-face-replenishment.events,warehouse.pick-face-replenishment.analytics"
 	if got != want {
-		t.Fatalf("runtime topics = %s, want %s", got, want)
+		t.Fatalf("topics = %s, want %s", got, want)
 	}
 }
 
 func TestLogTopicsNamesWhatTheServiceConsumesAndProduces(t *testing.T) {
 	logger, logs := quietLogger()
 	logTopics(logger, []string{"b:9092"})
-	for _, want := range []string{"warehouse.inventory.events", "warehouse.pick-face-replenishment.events", "never creates"} {
+	for _, want := range []string{"warehouse.inventory.events", "warehouse.pick-face-replenishment.events", "never creates", "informational"} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("topics log lacks %q: %s", want, logs.String())
 		}

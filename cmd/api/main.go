@@ -6,7 +6,9 @@
 // Postgres and Kafka are the ONLY runtime (ADR 0006): there is no in-memory
 // mode, no consumer that is off by default and no optional relay. A missing
 // mandatory variable is a boot error naming it, raised before the listener
-// binds. Topics are owned by infrastructure; the service never creates them.
+// binds. The service never creates topics through an admin API: the cluster
+// broker auto-creates them on first write (the relay's writer sets
+// AllowAutoTopicCreation) and infrastructure declares none.
 //
 // Environment:
 //
@@ -83,7 +85,7 @@ func run(ctx context.Context) error {
 	defer closeAdapters()
 	logTopics(logger, cfg.brokers)
 
-	readiness := buildReadiness(ad, outboundkafka.NewBrokerCheck(cfg.brokers, runtimeTopics()).Check)
+	readiness := buildReadiness(ad, outboundkafka.NewBrokerCheck(cfg.brokers).Check)
 	zones := zoneConfigFromEnv()
 	httpServer := &http.Server{
 		Addr:              getenv("HTTP_ADDR", ":8080"),

@@ -108,8 +108,9 @@ func consumerBuilders(ad adapters, zones usecases.ZoneConfig) map[string]consume
 // startConsumers starts every planned consumer and returns their workers and
 // the func that stops them. The readers dial lazily inside Run, so a broker
 // outage (or a topic that does not exist yet) never blocks boot or crashes the
-// process: the consumer logs and retries, and /readyz reports not-ready until
-// the broker and its topics are there. Each worker closes its own reader and
+// process: the consumer logs and retries, and /readyz reports not-ready only
+// while the broker is unreachable (a missing topic shows as consumer retry
+// logs, never as a readiness failure). Each worker closes its own reader and
 // dead-letter writer once Run has returned.
 func startConsumers(ad adapters, zones usecases.ZoneConfig, brokers []string, planned []plannedConsumer, logger *slog.Logger) ([]*worker, func()) {
 	builders := consumerBuilders(ad, zones)
