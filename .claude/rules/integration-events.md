@@ -5,16 +5,22 @@ paths:
   - "apis/asyncapi*"
 ---
 
-<!-- TEMPLATE (warehouse-harness-template v2): fill in every "FILL IN" for
-     THIS repo, or delete this file if the repo publishes/consumes no Kafka
-     events. The "CloudEvents 1.0 is MANDATORY" section is NOT a
-     placeholder: keep it verbatim, only substitute the per-repo values. -->
 # Cross-service integration events (Kafka)
 
-FILL IN: state whether this service PUBLISHES, CONSUMES, or both, and
-to/from which topic(s). Fleet naming: `warehouse.<context>.events`
-(integration) and `warehouse.<context>.analytics` (consumed only by this
-service's own analytics projector).
+pick-face-replenishment both PUBLISHES and CONSUMES. It publishes the
+`ReplenishmentRequest` events to `warehouse.pick-face-replenishment.events`
+(integration) and mirrors them, plus the analytics-only
+`ReplenishmentPolicyDeclared`, to `warehouse.pick-face-replenishment.analytics`
+(read only by this service's own analytics side). It consumes three sibling
+topics to feed durable local copies and to close requests (ADR 0003). Contract:
+`apis/asyncapi.yaml`; decision records: `docs/adr/0003-local-copies-and-consumed-contracts.md`
+and `docs/adr/0004-cloudevents-envelope-and-type-catalogue.md`.
+
+Events leave only through the transactional outbox (request row and encoded
+events in ONE database transaction, a relay drains to Kafka). The relay builds
+on the scaffold writer in `internal/adapters/outbound/kafka/writer.go`: set
+`Message.Topic` per message and never add a Topic to the Writer. The wiring
+and the relay are built in wave 2.
 
 ## Events: CloudEvents 1.0 is MANDATORY
 
@@ -41,14 +47,15 @@ not a preference — there is nothing to "choose" here:
   balancer.
 - Required attributes: `specversion=1.0`; `id` (UUID v4 minted ONCE per
   domain event and persisted with the outbox row, so redelivery carries
-  the same id); `source=/warehouse/<repo>`; `type`; `subject` (aggregate
+  the same id); `source=/warehouse/pick-face-replenishment`; `type`; `subject` (aggregate
   instance id, never empty); `time` (domain occurred-at, UTC);
   `datacontenttype=application/json`;
-  `dataschema=urn:warehouse:<repo>:<events|analytics>:<EventName>:v<N>`.
+  `dataschema=urn:warehouse:pick-face-replenishment:<events|analytics>:<EventName>:v<N>`.
   No custom extension attributes without an ADR.
 - `type` = `com.warehouse.<subdomain>.<bounded-context>.<entity>.<EventName>`
-  (subdomain `wms` or `wes`; FILL IN this repo's exact prefix, e.g.
-  `com.warehouse.wes.order-management`). The SAME `type` names the
+  (subdomain `wms` or `wes`; this repo's exact prefix is
+  `com.warehouse.wms.pick-face-replenishment`, entity `replenishment` or
+  `policy`). The SAME `type` names the
   occurrence on both the integration and the analytics topic; `dataschema`
   names the payload shape. Breaking payload change => new `.v2` type + new
   dataschema version, never mutate an existing one.
@@ -62,40 +69,75 @@ not a preference — there is nothing to "choose" here:
   the `content-type` header); a legacy-flat-message-rejected test per
   consumer; Kafka integration tests via testcontainers only.
 
-Full standard, subdomain table and the fleet's cross-service type
-catalogue: warehouse-docs `docs/strategic-design/event-standard-cloudevents.md`.
-Record it in this repo as its own ADR "CloudEvents 1.0 as the mandatory
-event envelope" under `docs/docs/adr/`.
+Full standard, subdomain table and the fleet's cross-service type catalogue:
+the CloudEvents event standard page in the warehouse-docs repository. This repo
+records its own copy of the envelope and the type catalogue as ADR 0004,
+`docs/adr/0004-cloudevents-envelope-and-type-catalogue.md`;
+`TestEventCatalogueMatchesContract` (`internal/architecture/catalogue_fitness_test.go`)
+fails when a type in `apis/asyncapi.yaml` has no line in that ADR.
 
 ### Published types
 
-FILL IN: one row per published event, exact strings.
+Key and `subject` = the request id (`repl-<uuid>`), except the policy event,
+whose key and `subject` are `<site_id>/<sku>`. `events` is
+`warehouse.pick-face-replenishment.events`, `analytics` is
+`warehouse.pick-face-replenishment.analytics`.
 
 | `type` | topic(s) | `subject` | `dataschema` |
 | --- | --- | --- | --- |
-| `com.warehouse.<sub>.<ctx>.<entity>.<EventName>` | `warehouse.<ctx>.events` | aggregate id | `urn:warehouse:<repo>:events:<EventName>:v1` |
+| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentRequested` | `events` + `analytics` | request id | `urn:warehouse:pick-face-replenishment:events:ReplenishmentRequested:v1` (analytics: `...:analytics:...`) |
+| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCompleted` | `events` + `analytics` | request id | `urn:warehouse:pick-face-replenishment:events:ReplenishmentCompleted:v1` (analytics: `...:analytics:...`) |
+| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCancelled` | `events` + `analytics` | request id | `urn:warehouse:pick-face-replenishment:events:ReplenishmentCancelled:v1` (analytics: `...:analytics:...`) |
+| `com.warehouse.wms.pick-face-replenishment.policy.ReplenishmentPolicyDeclared` | `analytics` only | `<site_id>/<sku>` | `urn:warehouse:pick-face-replenishment:analytics:ReplenishmentPolicyDeclared:v1` |
+
+Payloads (snake_case, optional fields omitted when unset, RFC 3339 UTC times):
+`ReplenishmentRequested` `{request_id, site_id, sku, forward_bin, source_bin,
+quantity, priority, policy_min, policy_max, requested_at}`;
+`ReplenishmentCompleted` `{request_id, site_id, sku, forward_bin, source_bin,
+quantity, completed_at}` (`quantity` is what the relocation moved);
+`ReplenishmentCancelled` `{request_id, site_id, sku, reason, cancelled_at}`;
+`ReplenishmentPolicyDeclared` `{site_id, sku, min_qty, max_qty, multiple,
+version, declared_at}`. `priority` is `NORMAL` or `URGENT`; `reason` is
+`OPERATOR`, `ASSIGNMENT_CHANGED` or `POLICY_REMOVED`. Removing a policy raises
+no event of its own.
 
 ### Consumed types
 
-FILL IN: one row per consumed event — the EXACT `type` string from the
-producer's catalogue (byte-identical; see the cross-service catalogue on the
-Event Standard page).
+Byte-identical to each producer's catalogue (ADR 0003, ADR 0004). Every other
+type on these topics is ignored. Status: `BinStockLevelChanged` is pinned
+consumer-first (inventory-storage producer change P1 is pending);
+`StockRelocated` gains the reason `REPLENISHMENT` with producer change P4.
 
-| `type` | topic | producer |
-| --- | --- | --- |
+| `type` | topic | producer | effect | group env | mode env |
+| --- | --- | --- | --- | --- | --- |
+| `com.warehouse.wms.inventory-storage.stock.BinStockLevelChanged` | `warehouse.inventory.events` | inventory-storage | `bin_stock_levels` copy; apply only when `version` is greater than the stored one | `INVENTORY_CONSUMER_GROUP` | `INVENTORY_MODE` |
+| `com.warehouse.wms.inventory-storage.stock.StockRelocated` | `warehouse.inventory.events` | inventory-storage | completes a request only when `reason` is `REPLENISHMENT` and `source_ref`, SKU and bins match | `INVENTORY_CONSUMER_GROUP` | `INVENTORY_MODE` |
+| `com.warehouse.wms.slotting-optimization.slotplan.SlotPlanApproved` | `warehouse.slotting-optimization.events` | slotting-optimization | replaces the site's `forward_assignments` wholesale; cancels requests with `ASSIGNMENT_CHANGED` | `SLOTTING_CONSUMER_GROUP` | `SLOTTING_MODE` |
+| `com.warehouse.wms.facility-layout.zone.ZoneRegistered` | `warehouse.facility.events` | facility-layout | zone code per zone | `LAYOUT_CONSUMER_GROUP` | `LAYOUT_MODE` |
+| `com.warehouse.wms.facility-layout.locationslot.LocationSlotRegistered` | `warehouse.facility.events` | facility-layout | `locations` copy | `LAYOUT_CONSUMER_GROUP` | `LAYOUT_MODE` |
+| `com.warehouse.wms.facility-layout.locationslot.LocationSlotDecommissioned` | `warehouse.facility.events` | facility-layout | removes a location | `LAYOUT_CONSUMER_GROUP` | `LAYOUT_MODE` |
+
+A reserve bin is a Storage location (absent `role` = Storage) in a zone listed
+in `RESERVE_ZONE_CODES` (default `RSV`).
 
 ## Consumer group id
 
-If this service consumes Kafka: state where the consumer group id comes
-from. It MUST be env-configurable, never a hardcoded string literal --
+Three consumers, each with a stable group id read from env, never a hardcoded
+string literal: `INVENTORY_CONSUMER_GROUP`, `SLOTTING_CONSUMER_GROUP`,
+`LAYOUT_CONSUMER_GROUP`.
 `internal/architecture/fitness_test.go`'s
 TestKafkaConsumerGroupNeverHardcodedInline enforces this (a real incident:
 wes-work-planning's hardcoded group id let a locally-run e2e-tests process
 silently collide with the live in-cluster Deployment's consumer group on
 the shared fleet Kafka broker).
 
-If this consumer replays from FirstOffset on every start to build an
-in-memory read model (rather than resuming from a committed offset), the
-group id must additionally be UNIQUE PER PROCESS INSTANCE (hostname+PID+
-timestamp), not just configurable -- see HARNESS.md's Kafka section for
-why a shared group breaks that pattern specifically.
+Modes `INVENTORY_MODE`, `SLOTTING_MODE`, `LAYOUT_MODE` default to `permissive`;
+`kafka` without its group env is a boot error. The local copies
+are durable in Postgres and resume from the committed offset, so the groups are
+stable, not unique per process (the unique-per-instance rule in HARNESS.md's
+Kafka section is only for consumers that replay from FirstOffset into memory).
+Consumer rules (FetchMessage + CommitMessages after success, dedupe on `id` in
+the same transaction as the effect, skip invalid CloudEvents with a WARN, never
+dead-letter on a cancelled context, `//dlq:deterministic` only for poison
+payloads) are in `.claude/rules/fleet/kafka-testing-and-consumers.md` and
+`.claude/rules/fleet/idempotency-and-outbox.md`.
