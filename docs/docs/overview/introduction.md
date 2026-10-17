@@ -55,10 +55,12 @@ It does **not** own stock levels, slot assignments or locations. Those arrive as
 
 Replenishment is meant to run through the relocation chain pick-face-replenishment, wes-work-planning (`REPLENISH`
 work), fulfillment-execution, inventory-storage (`RelocateStock`) and back as `StockRelocated`. Checked on each sibling's
-`origin/develop`: the inputs from slotting-optimization and facility-layout are live, inventory-storage does not yet
-publish `BinStockLevelChanged` or a `StockRelocated` with reason `REPLENISHMENT`, and nothing consumes
-`ReplenishmentRequested`, so today a request can be raised and cancelled but not completed. The per-edge table is on
-[Integration](/docs/ecosystem/integration).
+`origin/develop`: the inputs from slotting-optimization and facility-layout are live, inventory-storage publishes
+`BinStockLevelChanged` (its ADR 0040) and a `StockRelocated` with reason `REPLENISHMENT` for a completed `REPLENISH`
+task (its ADR 0041), and fulfillment-execution creates, announces and completes `REPLENISH` tasks (its ADR 0050). Still
+missing is the first hop: wes-work-planning consumes nothing from this service's topic and emits no `replenishment`
+object on `WorkReleased`, so today a request can be raised and cancelled but no task is created for it and it does not
+complete. The per-edge table is on [Integration](/docs/ecosystem/integration).
 
 ## Where to go next
 

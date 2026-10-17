@@ -31,11 +31,11 @@ Copied from the fleet table in warehouse-docs (`origin/main`), not from memory:
 
 | Context | Classification | CloudEvents subdomain | Relation |
 | --- | --- | --- | --- |
-| `inventory-storage` | Core | `wms` | upstream: `BinStockLevelChanged`, `StockRelocated` |
+| `inventory-storage` | Core | `wms` | upstream: `BinStockLevelChanged`, `StockRelocated` (reason `REPLENISHMENT` included) |
 | `slotting-optimization` | Supporting | `wms` | upstream: `SlotPlanApproved` |
 | `facility-layout` | Generic | `wms` | upstream: zones and location slots |
-| `wes-work-planning` | Core | `wes` | planned downstream: `REPLENISH` work from `ReplenishmentRequested` |
-| `fulfillment-execution` | Core | `wes` | planned: runs the `REPLENISH` task |
+| `wes-work-planning` | Core | `wes` | planned downstream: `REPLENISH` work from `ReplenishmentRequested` (not built) |
+| `fulfillment-execution` | Core | `wes` | downstream, built: runs the `REPLENISH` task from `WorkReleased.data.replenishment` (its ADR 0050) |
 | `warehouse-ops-agent` | Supporting | `wes` | planned REST reader |
 
 The tier (`wms`, `wes`) groups contexts by where they sit in the platform; it is not the Core/Supporting/Generic
