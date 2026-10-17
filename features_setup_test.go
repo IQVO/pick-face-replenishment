@@ -3,6 +3,7 @@ package main_test
 import (
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -20,6 +21,7 @@ func registerSetupSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the location "([^"]*)" is decommissioned$`, w.decommission)
 	sc.Step(`^the approved slot plan of site "([^"]*)" assigns (".*")$`, w.slotPlanAssigns)
 	sc.Step(`^the approved slot plan of site "([^"]*)" assigns nothing$`, w.slotPlanAssignsNothing)
+	sc.Step(`^the slot plan "([^"]*)" of site "([^"]*)" approved at "([^"]*)" assigns (".*")$`, w.slotPlanApprovedAt)
 	sc.Step(`^bin "([^"]*)" of site "([^"]*)" holds (-?\d+) on hand and (\d+) reserved of "([^"]*)"$`, w.binHolds)
 	sc.Step(`^bin "([^"]*)" of site "([^"]*)" holds (\d+) of "([^"]*)"$`, w.binHoldsUnreserved)
 	sc.Step(`^bin "([^"]*)" of site "([^"]*)" reports a level of (\d+) on hand for "([^"]*)" that is not newer$`, w.binNotNewer)
@@ -60,19 +62,38 @@ func (w *world) decommission(code string) error {
 var assignmentPair = regexp.MustCompile(`"([^"]*)" to "([^"]*)"`)
 
 func (w *world) slotPlanAssigns(site, pairs string) error {
-	var as []usecases.SlotAssignment
-	for _, m := range assignmentPair.FindAllStringSubmatch(pairs, -1) {
-		as = append(as, usecases.SlotAssignment{SKU: m[1], Slot: m[2]})
-	}
-	return w.slotPlan(site, as)
+	return w.slotPlan(site, parsePairs(pairs))
 }
 
 func (w *world) slotPlanAssignsNothing(site string) error { return w.slotPlan(site, nil) }
 
 func (w *world) slotPlan(site string, as []usecases.SlotAssignment) error {
-	c := usecases.ForwardMapChange{SiteID: site, Assignments: as}
+	w.planSeq++
+	at := bddNow.Add(time.Duration(w.planSeq-1) * time.Minute)
+	return w.slotPlanAt(site, fmt.Sprintf("plan-%d", w.planSeq), at, as)
+}
+
+func (w *world) slotPlanAt(site, planID string, at time.Time, as []usecases.SlotAssignment) error {
+	c := usecases.ForwardMapChange{SiteID: site, PlanID: planID, ApprovedAt: at, Assignments: as}
 	w.deliver(func(id string) (usecases.Outcome, error) { return w.uc.forwardMap.Handle(w.ctx, id, c) })
 	return nil
+}
+
+// slotPlanApprovedAt delivers a plan with an explicit id and approval instant.
+func (w *world) slotPlanApprovedAt(planID, site, at, pairs string) error {
+	when, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return fmt.Errorf("approval time %q: %w", at, err)
+	}
+	return w.slotPlanAt(site, planID, when, parsePairs(pairs))
+}
+
+func parsePairs(pairs string) []usecases.SlotAssignment {
+	var as []usecases.SlotAssignment
+	for _, m := range assignmentPair.FindAllStringSubmatch(pairs, -1) {
+		as = append(as, usecases.SlotAssignment{SKU: m[1], Slot: m[2]})
+	}
+	return as
 }
 
 // nextVersion is the per-(site, bin, SKU) version of the next level message.

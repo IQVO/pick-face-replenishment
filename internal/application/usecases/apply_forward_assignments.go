@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/claudioed/pick-face-replenishment/internal/application/repository"
 	"github.com/claudioed/pick-face-replenishment/internal/domain/replenishment"
@@ -17,16 +18,20 @@ type SlotAssignment struct {
 }
 
 // ForwardMapChange is a decoded SlotPlanApproved payload reduced to what this
-// service acts on: assignments is the FULL forward map of the site.
+// service acts on: assignments is the FULL forward map of the site; plan_id and
+// approved_at stamp it for the stale-map guard.
 type ForwardMapChange struct {
 	SiteID      string
+	PlanID      string
+	ApprovedAt  time.Time
 	Assignments []SlotAssignment
 }
 
 // ApplyForwardAssignmentMap replaces the site's forward assignments wholesale,
 // cancels every open request whose bin no longer holds its SKU
 // (ASSIGNMENT_CHANGED, invariant 5) and evaluates the pick faces that are new
-// or moved.
+// or moved. A map approved no later than the one already applied is stale and
+// changes nothing (outcome stale).
 type ApplyForwardAssignmentMap struct {
 	Intake
 	Eval Evaluator
@@ -40,20 +45,44 @@ func (uc *ApplyForwardAssignmentMap) Handle(ctx context.Context, eventID string,
 		return "", invalid(err)
 	}
 	return uc.apply(ctx, SlottingConsumer, eventID, func(ctx context.Context) (Outcome, error) {
-		if err := uc.replace(ctx, c.SiteID, next); err != nil {
+		stale, err := uc.isStale(ctx, c)
+		if err != nil {
+			return "", err
+		}
+		if stale {
+			return OutcomeStale, nil
+		}
+		if err := uc.replace(ctx, c, next); err != nil {
 			return "", err
 		}
 		return OutcomeApplied, nil
 	})
 }
 
-func (uc *ApplyForwardAssignmentMap) replace(ctx context.Context, siteID string, next []repository.Assignment) error {
+// isStale is the stale-map guard (ADR 0005): a SlotPlanApproved whose
+// approved_at is not after the one recorded for the site is an older (or the
+// same) map delivered late, e.g. by a replay or a rebalance; applying it would
+// bring back assignments a newer plan already dropped.
+func (uc *ApplyForwardAssignmentMap) isStale(ctx context.Context, c ForwardMapChange) (bool, error) {
+	stamp, found, err := uc.Eval.Read.ForwardMapStamp(ctx, c.SiteID)
+	if err != nil {
+		return false, fmt.Errorf("read forward map stamp: %w", err)
+	}
+	if !found {
+		return false, nil
+	}
+	return !c.ApprovedAt.After(stamp.ApprovedAt), nil
+}
+
+func (uc *ApplyForwardAssignmentMap) replace(ctx context.Context, c ForwardMapChange, next []repository.Assignment) error {
+	siteID := c.SiteID
 	read := uc.Eval.Read
 	prev, err := read.Assignments(ctx, siteID)
 	if err != nil {
 		return fmt.Errorf("read forward assignments: %w", err)
 	}
-	if err := read.ReplaceAssignments(ctx, siteID, next); err != nil {
+	stamp := repository.MapStamp{PlanID: c.PlanID, ApprovedAt: c.ApprovedAt.UTC()}
+	if err := read.ReplaceAssignments(ctx, siteID, stamp, next); err != nil {
 		return fmt.Errorf("replace forward assignments: %w", err)
 	}
 	if err := uc.cancelStale(ctx, siteID, next); err != nil {
@@ -102,6 +131,12 @@ func holds(m []repository.Assignment, a repository.Assignment) bool {
 func assignmentsOf(c ForwardMapChange) ([]repository.Assignment, error) {
 	if shared.IsBlank(c.SiteID) {
 		return nil, errors.New("site_id is required")
+	}
+	if shared.IsBlank(c.PlanID) {
+		return nil, errors.New("plan_id is required")
+	}
+	if c.ApprovedAt.IsZero() {
+		return nil, errors.New("approved_at is required")
 	}
 	seen := make(map[string]bool, len(c.Assignments))
 	out := make([]repository.Assignment, 0, len(c.Assignments))

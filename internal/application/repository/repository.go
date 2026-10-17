@@ -75,6 +75,14 @@ type Assignment struct {
 	Bin    string
 }
 
+// MapStamp says which approved slot plan produced a site's forward assignment
+// map and when it was approved. It is the stale-map guard of ADR 0005: a
+// SlotPlanApproved older than the recorded stamp must not replace the map.
+type MapStamp struct {
+	PlanID     string
+	ApprovedAt time.Time
+}
+
 // Zone is a facility-layout zone of the layout copy.
 type Zone struct {
 	ID       string

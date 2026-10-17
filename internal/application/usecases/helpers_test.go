@@ -82,7 +82,7 @@ func (e *env) seed(t *testing.T) {
 		e.read.SaveZone(bg, repository.Zone{ID: "z-rsv", SiteCode: "S1", ZoneCode: "RSV"}),
 		e.read.SaveLocation(bg, repository.Location{Code: "F-01", ZoneID: "z-fwd"}),
 		e.read.SaveLocation(bg, repository.Location{Code: "R-01", ZoneID: "z-rsv"}),
-		e.read.ReplaceAssignments(bg, "S1", []repository.Assignment{{SiteID: "S1", SKU: "SKU-1", Bin: "F-01"}}),
+		e.read.ReplaceAssignments(bg, "S1", repository.MapStamp{PlanID: "plan-seed", ApprovedAt: t0}, []repository.Assignment{{SiteID: "S1", SKU: "SKU-1", Bin: "F-01"}}),
 	} {
 		if err != nil {
 			t.Fatal(err)

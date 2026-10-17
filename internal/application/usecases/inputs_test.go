@@ -147,6 +147,7 @@ func TestInvalidLayoutAndMapEvents(t *testing.T) {
 	loc := &usecases.ApplyLocationRegistered{Intake: e.intake, Read: e.eval.Read}
 	dec := &usecases.ApplyLocationDecommissioned{Intake: e.intake, Read: e.eval.Read}
 	fmap := &usecases.ApplyForwardAssignmentMap{Intake: e.intake, Eval: e.eval}
+	ok := usecases.ForwardMapChange{SiteID: "S", PlanID: "plan-1", ApprovedAt: t0}
 	checks := []error{
 		second(zone.Handle(bg, "e1", usecases.ZoneChange{SiteCode: "S", ZoneCode: "FWD"})),
 		second(zone.Handle(bg, "e2", usecases.ZoneChange{ZoneID: "z", ZoneCode: "FWD"})),
@@ -154,9 +155,12 @@ func TestInvalidLayoutAndMapEvents(t *testing.T) {
 		second(loc.Handle(bg, "e4", usecases.LocationChange{ZoneID: "z"})),
 		second(loc.Handle(bg, "e5", usecases.LocationChange{Code: "L"})),
 		second(dec.Handle(bg, "e6", " ")),
-		second(fmap.Handle(bg, "e7", usecases.ForwardMapChange{SiteID: ""})),
-		second(fmap.Handle(bg, "e8", usecases.ForwardMapChange{SiteID: "S", Assignments: []usecases.SlotAssignment{{SKU: "", Slot: "F"}}})),
-		second(fmap.Handle(bg, "e9", usecases.ForwardMapChange{SiteID: "S", Assignments: []usecases.SlotAssignment{{SKU: "K", Slot: " "}}})),
+		second(fmap.Handle(bg, "e7", usecases.ForwardMapChange{SiteID: "", PlanID: "plan-1", ApprovedAt: t0})),
+		second(fmap.Handle(bg, "e8", withAssignments(ok, usecases.SlotAssignment{SKU: "", Slot: "F"}))),
+		second(fmap.Handle(bg, "e9", withAssignments(ok, usecases.SlotAssignment{SKU: "K", Slot: " "}))),
+		second(fmap.Handle(bg, "e10", usecases.ForwardMapChange{SiteID: "S", ApprovedAt: t0})),
+		second(fmap.Handle(bg, "e11", usecases.ForwardMapChange{SiteID: "S", PlanID: " ", ApprovedAt: t0})),
+		second(fmap.Handle(bg, "e12", usecases.ForwardMapChange{SiteID: "S", PlanID: "plan-1"})),
 	}
 	for i, err := range checks {
 		if !errors.Is(err, usecases.ErrInvalidEvent) {
@@ -202,7 +206,7 @@ func TestPickFaceOfAnUnseenZoneIsPermissive(t *testing.T) {
 	e := newEnv()
 	e.seed(t)
 	_ = e.read.SaveLocation(bg, repository.Location{Code: "F-07", ZoneID: "z-unknown"})
-	_ = e.read.ReplaceAssignments(bg, "S1", []repository.Assignment{{SiteID: "S1", SKU: "SKU-1", Bin: "F-07"}})
+	_ = e.read.ReplaceAssignments(bg, "S1", repository.MapStamp{PlanID: "plan-seed", ApprovedAt: t0}, []repository.Assignment{{SiteID: "S1", SKU: "SKU-1", Bin: "F-07"}})
 	page, err := faces(e, usecases.PickFaceQuery{SiteID: "S1"})
 	if err != nil || len(page.Items) != 1 || page.Items[0].ForwardBin != "F-07" {
 		t.Fatalf("a location whose zone is unknown yet is still a pick face: %+v, %v", page, err)

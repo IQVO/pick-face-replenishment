@@ -153,15 +153,21 @@ func seed(t *testing.T, m *memory.ReadModel) {
 func TestReadModelReplaceAssignmentsIsPerSite(t *testing.T) {
 	ctx := context.Background()
 	m := memory.NewReadModel()
-	_ = m.ReplaceAssignments(ctx, "S1", []repository.Assignment{{SKU: "A", Bin: "F2"}, {SKU: "B", Bin: "F1"}})
-	_ = m.ReplaceAssignments(ctx, "S2", []repository.Assignment{{SKU: "A", Bin: "G1"}})
-	_ = m.ReplaceAssignments(ctx, "S1", []repository.Assignment{{SKU: "B", Bin: "F1"}})
+	_ = m.ReplaceAssignments(ctx, "S1", repository.MapStamp{PlanID: "p1", ApprovedAt: t0}, []repository.Assignment{{SKU: "A", Bin: "F2"}, {SKU: "B", Bin: "F1"}})
+	_ = m.ReplaceAssignments(ctx, "S2", repository.MapStamp{PlanID: "p2", ApprovedAt: t0}, []repository.Assignment{{SKU: "A", Bin: "G1"}})
+	_ = m.ReplaceAssignments(ctx, "S1", repository.MapStamp{PlanID: "p3", ApprovedAt: t0.Add(time.Hour)}, []repository.Assignment{{SKU: "B", Bin: "F1"}})
 	got, _ := m.Assignments(ctx, "S1")
 	if len(got) != 1 || got[0].SKU != "B" {
 		t.Fatalf("S1 = %+v", got)
 	}
 	if bin, ok, _ := m.ForwardBin(ctx, "S2", "A"); !ok || bin != "G1" {
 		t.Fatalf("S2 must be untouched, got %q %v", bin, ok)
+	}
+	if st, ok, _ := m.ForwardMapStamp(ctx, "S1"); !ok || st.PlanID != "p3" || !st.ApprovedAt.Equal(t0.Add(time.Hour)) {
+		t.Fatalf("S1 stamp = %+v %v", st, ok)
+	}
+	if _, ok, _ := m.ForwardMapStamp(ctx, "S9"); ok {
+		t.Fatal("a site never mapped has no stamp")
 	}
 }
 

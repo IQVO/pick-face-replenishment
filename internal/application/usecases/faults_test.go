@@ -3,6 +3,7 @@ package usecases_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 )
@@ -140,11 +141,12 @@ func consumerFaults() []faultCase {
 			return err
 		}},
 		{name: "forward map", open: true,
-			fail: []string{"ProcessedEvents.Claim", "ReadModel.Assignments", "ReadModel.ReplaceAssignments", "RequestRepo.OpenForSite",
+			fail: []string{"ProcessedEvents.Claim", "ReadModel.ForwardMapStamp", "ReadModel.Assignments", "ReadModel.ReplaceAssignments", "RequestRepo.OpenForSite",
 				"RequestRepo.Save", "EventSink.PublishRequestEvents", "ReadModel.Place", "ReadModel.BinLevel"},
 			act: func(e *env) error {
 				_, err := (&usecases.ApplyForwardAssignmentMap{Intake: e.intake, Eval: e.eval}).Handle(bg, "evt-1",
-					usecases.ForwardMapChange{SiteID: "S1", Assignments: []usecases.SlotAssignment{{SKU: "SKU-1", Slot: "F-02"}}})
+					usecases.ForwardMapChange{SiteID: "S1", PlanID: "plan-2", ApprovedAt: t0.Add(time.Hour),
+						Assignments: []usecases.SlotAssignment{{SKU: "SKU-1", Slot: "F-02"}}})
 				return err
 			}},
 		{name: "zone", fail: []string{"ProcessedEvents.Claim", "ReadModel.SaveZone"}, act: func(e *env) error {

@@ -25,6 +25,7 @@ type ReadModel struct {
 	mu          sync.Mutex
 	levels      map[levelKey]repository.BinLevel
 	assignments map[assignmentKey]string
+	stamps      map[string]repository.MapStamp
 	zones       map[string]repository.Zone
 	locations   map[string]locationRow
 }
@@ -34,6 +35,7 @@ func NewReadModel() *ReadModel {
 	return &ReadModel{
 		levels:      map[levelKey]repository.BinLevel{},
 		assignments: map[assignmentKey]string{},
+		stamps:      map[string]repository.MapStamp{},
 		zones:       map[string]repository.Zone{},
 		locations:   map[string]locationRow{},
 	}
@@ -133,10 +135,19 @@ func (m *ReadModel) ApplyBinLevel(_ context.Context, level repository.BinLevel) 
 	return true, nil
 }
 
-// ReplaceAssignments implements ports.PickFaceReadModel.
-func (m *ReadModel) ReplaceAssignments(_ context.Context, siteID string, assignments []repository.Assignment) error {
+// ForwardMapStamp implements ports.PickFaceReadModel.
+func (m *ReadModel) ForwardMapStamp(_ context.Context, siteID string) (repository.MapStamp, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	s, ok := m.stamps[siteID]
+	return s, ok, nil
+}
+
+// ReplaceAssignments implements ports.PickFaceReadModel.
+func (m *ReadModel) ReplaceAssignments(_ context.Context, siteID string, stamp repository.MapStamp, assignments []repository.Assignment) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stamps[siteID] = stamp
 	for key := range m.assignments {
 		if key.site == siteID {
 			delete(m.assignments, key)
@@ -181,11 +192,11 @@ func (m *ReadModel) DecommissionLocation(_ context.Context, code string) error {
 func (m *ReadModel) Snapshot() func() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	levels, assignments := maps.Clone(m.levels), maps.Clone(m.assignments)
+	levels, assignments, stamps := maps.Clone(m.levels), maps.Clone(m.assignments), maps.Clone(m.stamps)
 	zones, locations := maps.Clone(m.zones), maps.Clone(m.locations)
 	return func() {
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		m.levels, m.assignments, m.zones, m.locations = levels, assignments, zones, locations
+		m.levels, m.assignments, m.stamps, m.zones, m.locations = levels, assignments, stamps, zones, locations
 	}
 }

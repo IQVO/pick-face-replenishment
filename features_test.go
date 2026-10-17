@@ -115,6 +115,7 @@ type world struct {
 	outcome    usecases.Outcome
 
 	eventSeq  int
+	planSeq   int
 	versions  map[string]int64
 	redeliver func()
 
@@ -133,7 +134,7 @@ func (w *world) start() {
 	w.uc, w.log = wire()
 	w.ctx = context.Background()
 	w.err, w.errChecked, w.unchecked, w.outcome = nil, false, nil, ""
-	w.eventSeq, w.versions, w.redeliver = 0, map[string]int64{}, nil
+	w.eventSeq, w.planSeq, w.versions, w.redeliver = 0, 0, map[string]int64{}, nil
 	w.summary, w.removed, w.nextCursor = usecases.EvaluationSummary{}, 0, ""
 }
 

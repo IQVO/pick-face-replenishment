@@ -55,11 +55,18 @@ func (m *failRead) ApplyBinLevel(ctx context.Context, l repository.BinLevel) (bo
 	return m.PickFaceReadModel.ApplyBinLevel(ctx, l)
 }
 
-func (m *failRead) ReplaceAssignments(ctx context.Context, site string, as []repository.Assignment) error {
+func (m *failRead) ForwardMapStamp(ctx context.Context, site string) (repository.MapStamp, bool, error) {
+	if err := m.f.hit("ReadModel.ForwardMapStamp"); err != nil {
+		return repository.MapStamp{}, false, err
+	}
+	return m.PickFaceReadModel.ForwardMapStamp(ctx, site)
+}
+
+func (m *failRead) ReplaceAssignments(ctx context.Context, site string, stamp repository.MapStamp, as []repository.Assignment) error {
 	if err := m.f.hit("ReadModel.ReplaceAssignments"); err != nil {
 		return err
 	}
-	return m.PickFaceReadModel.ReplaceAssignments(ctx, site, as)
+	return m.PickFaceReadModel.ReplaceAssignments(ctx, site, stamp, as)
 }
 
 func (m *failRead) SaveZone(ctx context.Context, z repository.Zone) error {

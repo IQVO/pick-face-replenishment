@@ -81,8 +81,12 @@ type PickFaceReadModel interface {
 	// stored one and reports whether it was applied; a lower or equal version
 	// changes nothing.
 	ApplyBinLevel(ctx context.Context, level repository.BinLevel) (applied bool, err error)
-	// ReplaceAssignments replaces the site's forward assignments wholesale.
-	ReplaceAssignments(ctx context.Context, siteID string, assignments []repository.Assignment) error
+	// ForwardMapStamp returns the stamp of the slot plan that produced the
+	// site's current forward assignments; false when no map was ever applied.
+	ForwardMapStamp(ctx context.Context, siteID string) (repository.MapStamp, bool, error)
+	// ReplaceAssignments replaces the site's forward assignments wholesale and
+	// records stamp as the plan that produced them, in one step.
+	ReplaceAssignments(ctx context.Context, siteID string, stamp repository.MapStamp, assignments []repository.Assignment) error
 	// SaveZone upserts a zone.
 	SaveZone(ctx context.Context, z repository.Zone) error
 	// SaveLocation upserts a location; a decommissioned location stays
