@@ -134,6 +134,30 @@ func Produce(t *testing.T, topic string, msgs ...Message) {
 	}
 }
 
+// CommittedOffset returns the offset the consumer group has committed on
+// partition 0 of topic (-1 when it committed nothing yet): the next offset the
+// group will read, so after N messages were handled and committed it is N.
+func CommittedOffset(t *testing.T, group, topic string) int64 {
+	t.Helper()
+	client := &kafkago.Client{Addr: kafkago.TCP(Brokers(t)...), Timeout: 10 * time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := client.OffsetFetch(ctx, &kafkago.OffsetFetchRequest{GroupID: group, Topics: map[string][]int{topic: {0}}})
+	if err != nil {
+		t.Fatalf("fetch the committed offset of %s on %s: %v", group, topic, err)
+	}
+	for _, p := range resp.Topics[topic] {
+		if p.Partition == 0 {
+			if p.Error != nil {
+				t.Fatalf("committed offset of %s on %s: %v", group, topic, p.Error)
+			}
+			return p.CommittedOffset
+		}
+	}
+	t.Fatalf("no partition 0 in the offset response for %s on %s", group, topic)
+	return -1
+}
+
 // Shutdown terminates the shared broker; call it from TestMain.
 func Shutdown() {
 	if container != nil {
