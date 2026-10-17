@@ -27,7 +27,10 @@ The execution chain after `ReplenishmentRequested` (wes-work-planning, fulfillme
 
 The service needs Postgres and Kafka and refuses to boot without `DATABASE_URL`, `KAFKA_BROKERS` and the three
 `*_CONSUMER_GROUP` variables. `make run-local` brings both up with `docker-compose.yml` (a job creates the five topics:
-the service never creates topics) and runs the service on them; host ports 5432 and 9092 must be free:
+the service never creates topics) and runs the service on them; host ports 5432 and 9092 must be free. **Not verified
+end to end:** the compose file could not be exercised on the development host, where the shared kind cluster already
+holds host port 9092. The proof that the service runs on real Postgres and Kafka is the testcontainers end-to-end test
+(`make integration`), which does not use this file:
 
 ```bash
 make run-local     # docker compose up Postgres + Kafka + topics, then go run ./cmd/api
