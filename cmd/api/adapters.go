@@ -12,6 +12,7 @@ import (
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/memory"
 	outboxrelay "github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/outbox"
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/postgres"
+	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/system"
 	"github.com/claudioed/pick-face-replenishment/internal/application/ports"
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 	"github.com/claudioed/pick-face-replenishment/internal/bootretry"
@@ -73,7 +74,7 @@ func memoryAdapters() adapters {
 	return adapters{
 		policies: policies, requests: requests, read: read, events: log, processed: processed,
 		uow:   memory.NewUnitOfWork(policies, requests, read, log, processed),
-		clock: memory.SystemClock{}, ids: memory.RandomIDs{},
+		clock: system.Clock{}, ids: system.RandomIDs{},
 	}
 }
 
@@ -82,7 +83,7 @@ func postgresAdapters(pool *pgxpool.Pool) adapters {
 	ad := adapters{
 		policies: postgres.NewPolicyRepo(pool), requests: postgres.NewRequestRepo(pool), read: postgres.NewReadModel(pool),
 		events: events.NewSink(ob), uow: postgres.NewUnitOfWork(pool),
-		clock: memory.SystemClock{}, ids: memory.RandomIDs{},
+		clock: system.Clock{}, ids: system.RandomIDs{},
 		processed: postgres.NewProcessedEventRepo(pool),
 		outbox:    ob,
 	}
