@@ -5,3 +5,58 @@ Pick-Face Replenishment: WMS-tier Supporting bounded context of the warehouse-sy
 - Design and pinned contracts: `docs/adr/` and the fleet plan `.hermes/plans/2026-10-17_005500-pick-face-replenishment-and-task-interleaving.md`.
 - Scaffolded from `warehouse-harness-template` (v3). Guides: `.claude/rules/`, sensors: `HARNESS.md`.
 - Commands: `make check-fast`, `make check-all`, `make integration`.
+
+## What it does
+
+- Holds a `MIN_MAX` policy per site and SKU (`PUT /policies/{siteId}/{sku}`, versioned with `If-Match`).
+- Keeps event-fed local copies of bin stock levels (inventory-storage), the approved forward map (slotting-optimization)
+  and the layout (facility-layout). It never calls a sibling over REST or MCP.
+- Raises a replenishment request when a pick face's projected level reaches its minimum: from a consumed event, from the
+  sweep `POST /sites/{siteId}/evaluate`, or by hand with `POST /replenishments`. The source is the fullest reserve bin.
+- Completes the request from inventory-storage's `StockRelocated` (reason `REPLENISHMENT`) and publishes
+  `ReplenishmentRequested`, `ReplenishmentCompleted` and `ReplenishmentCancelled` through a transactional outbox.
+- One binary: `cmd/api` (REST on `:8080`, the outbox relay and three opt-in Kafka consumers). No auth, no MCP.
+
+The execution chain after `ReplenishmentRequested` (wes-work-planning, fulfillment-execution, a relocation with reason
+`REPLENISHMENT`) is planned, not built, and inventory-storage does not publish `BinStockLevelChanged` yet; see
+[Integration](docs/docs/ecosystem/integration.md).
+
+## Run it
+
+```bash
+go build -o /tmp/pfr-api ./cmd/api
+HTTP_ADDR=:18080 /tmp/pfr-api                                   # in memory, REST only
+HTTP_ADDR=:18080 'DATABASE_URL=postgres://...' /tmp/pfr-api     # Postgres, migrations run at boot
+```
+
+Every variable is on [Configuration](docs/docs/operations/configuration.md); the first calls are in the
+[Quickstart](docs/docs/overview/quickstart.md).
+
+## Documentation
+
+The site is built from `docs/` (Docusaurus) and published at <https://iqvo.github.io/pick-face-replenishment/>.
+
+| Section | Pages |
+| --- | --- |
+| Overview | [Introduction](docs/docs/overview/introduction.md), [Architecture](docs/docs/overview/architecture.md), [Quickstart](docs/docs/overview/quickstart.md) |
+| Operations | [Configuration](docs/docs/operations/configuration.md), [Runbook](docs/docs/operations/runbook.md), [Observability](docs/docs/operations/observability.md), [Troubleshooting](docs/docs/operations/troubleshooting.md) |
+| Development | [Testing](docs/docs/development/testing.md) |
+| Domain-driven design | [Use cases](docs/docs/ddd/use-cases.md), [Subdomain classification](docs/docs/ddd/subdomain-classification.md), [Ubiquitous language](docs/docs/ddd/ubiquitous-language.md), [DDD artifacts index](docs/docs/ddd/ddd-artifacts.md) |
+| DDD artifacts | [Core domain chart](docs/docs/ddd/core-domain-chart.md), [Bounded context canvas](docs/docs/ddd/bounded-context-canvas.md), [Context map](docs/docs/ddd/context-map.md), [Aggregate design canvas](docs/docs/ddd/aggregate-design-canvas.md), [Domain message flow](docs/docs/ddd/domain-message-flow.md), [EventStorming](docs/docs/ddd/eventstorming.md), [Class diagrams](docs/docs/ddd/class-diagram.md), [Entity-relationship](docs/docs/ddd/entity-relationship.md), [Sequence diagrams](docs/docs/ddd/sequence-diagrams.md), [Domain events](docs/docs/ddd/domain-events.md) |
+| API reference | [API overview](docs/docs/api-reference/overview.md), [Event catalogue](docs/docs/api-reference/events.md), `apis/openapi.yaml`, `apis/asyncapi.yaml` |
+| Ecosystem | [Integration](docs/docs/ecosystem/integration.md) |
+| Architecture decisions | [ADR index](docs/adr/index.md): ADRs 0001 to 0005 in `docs/adr/` |
+
+Build the site locally with `cd docs && npm ci && npm run build`. The `Docs` workflow builds it on every pull request and
+deploys it from `main`.
+
+## Make targets
+
+| Target | What it runs |
+| --- | --- |
+| `make check` / `make check-all` | fast gate / fast gate plus coverage (90 %), architecture tests and BDD |
+| `make test`, `make bdd`, `make arch-test` | unit, godog features, hexagonal and fleet fitness tests |
+| `make integration` | testcontainers suites (needs Docker) |
+| `make mutation` | gremlins over the four domain packages |
+
+See [Testing](docs/docs/development/testing.md) for the CI jobs.
