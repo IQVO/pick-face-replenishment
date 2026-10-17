@@ -45,5 +45,6 @@ Dead-letter topics are `<consumed topic>.dlq` for each of the three consumed top
 ([Runbook](/docs/operations/runbook#dead-letter-topics)). Every other type on a consumed topic is ignored.
 
 Producer status of the consumed types today (checked on each sibling's `origin/develop`): see
-[Integration](/docs/ecosystem/integration#upstream-and-downstream-edges). In particular inventory-storage does not
-publish `BinStockLevelChanged` yet, and its `StockRelocated` contract lists no `REPLENISHMENT` reason.
+[Integration](/docs/ecosystem/integration#upstream-and-downstream-edges). In particular inventory-storage publishes
+`BinStockLevelChanged` (its ADR 0040), and its `StockRelocated` carries the `REPLENISHMENT` reason for a completed
+`REPLENISH` task (its ADR 0041).

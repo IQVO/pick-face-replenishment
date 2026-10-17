@@ -19,19 +19,22 @@ unauthenticated, and there is no MCP binary. Kafka is the single broker of the p
 
 | Edge | Protocol | Contract | Status today |
 | --- | --- | --- | --- |
-| inventory-storage to this service | Kafka `warehouse.inventory.events` | `com.warehouse.wms.inventory-storage.stock.BinStockLevelChanged` | **producer absent**: nothing in inventory-storage's `apis`, `internal` or `cmd` mentions the type. The contract is pinned consumer-first (ADR 0003, producer change P1). |
-| inventory-storage to this service | Kafka `warehouse.inventory.events` | `com.warehouse.wms.inventory-storage.stock.StockRelocated` | **producer exists**; its `reason` enum is `SLOTTING`, `CONSOLIDATION`, `MANUAL`. `REPLENISHMENT`, the only reason that completes a request, is **not produced yet** (producer change P4). |
+| inventory-storage to this service | Kafka `warehouse.inventory.events` | `com.warehouse.wms.inventory-storage.stock.BinStockLevelChanged` | **built and published** (inventory-storage ADR 0040; producer change P1 of ADR 0003): absolute `on_hand` and `reserved` per `<bin>:<sku>` with a strictly increasing `version`, raised in the ledger's own transaction. The field names are the ones this service decodes. There is no backfill: a bin learns its first level at its next change. |
+| inventory-storage to this service | Kafka `warehouse.inventory.events` | `com.warehouse.wms.inventory-storage.stock.StockRelocated` | **built and published**; its `reason` enum is `SLOTTING`, `CONSOLIDATION`, `MANUAL` and `REPLENISHMENT` (inventory-storage ADR 0041; producer change P4). `REPLENISHMENT`, the only reason that completes a request, is set only by a completed `REPLENISH` task, with `source_ref` = the task's `request_ref`; the same transaction also raises two `BinStockLevelChanged` events with reason `REPLENISHMENT` (source bin, then destination bin). |
 | slotting-optimization to this service | Kafka `warehouse.slotting-optimization.events` | `com.warehouse.wms.slotting-optimization.slotplan.SlotPlanApproved` | **built and published**: `plan_id`, `site_id`, `approved_at`, the full `assignments[{sku, slot}]` map |
 | facility-layout to this service | Kafka `warehouse.facility.events` | `...facility-layout.zone.ZoneRegistered`, `...locationslot.LocationSlotRegistered`, `...locationslot.LocationSlotDecommissioned` | **built and published** (`role` is absent on events from before it existed and means Storage) |
-| this service to wes-work-planning | Kafka `warehouse.pick-face-replenishment.events` | `ReplenishmentRequested` | **no consumer**: wes-work-planning has no `REPLENISH` work path (only `RELOCATE` for slot plans). Planned (producer-side change P3b of ADR 0001). |
-| wes-work-planning to fulfillment-execution to inventory-storage | Kafka | `WorkReleased` with a `replenishment` object, then `RelocateStock` with reason `REPLENISHMENT` | **absent, planned** (ADR 0001 changes P3 and P4) |
+| this service to wes-work-planning | Kafka `warehouse.pick-face-replenishment.events` | `ReplenishmentRequested` | **no consumer**: wes-work-planning has no consumer of this topic and no `REPLENISH` work path (only `RELOCATE` for slot plans). Not built (producer-side change P3b of ADR 0001). |
+| wes-work-planning to fulfillment-execution | Kafka `warehouse.work-planning.events` | `WorkReleased` with a `replenishment` object | **consumer built, producer absent** (P3): fulfillment-execution creates a `REPLENISH` task from `WorkReleased.data.replenishment` (its ADR 0050) and announces it on `TaskAvailable`, but wes-work-planning does not emit the object. |
+| fulfillment-execution to inventory-storage | Kafka `warehouse.fulfillment.events` | `TaskCompleted` with `request_ref`, then `StockRelocated` with reason `REPLENISHMENT` | **built and published** (P4): fulfillment-execution publishes `TaskCompleted` with `request_ref` (its ADR 0050), inventory-storage applies it as a relocation with reason `REPLENISHMENT` (its ADR 0041). |
 | this service to analytics | Kafka `warehouse.pick-face-replenishment.analytics` | the three request events plus `ReplenishmentPolicyDeclared` | no consumer in any repository checked |
 | this service to warehouse-ops-agent, warehouse-console, agents | REST (Open Host Service) | `apis/openapi.yaml` | no client in any repository checked; "later phases" in ADR 0001. Not routed in `warehouse-infra` (no Kong route). |
 | this service to any sibling over REST or MCP | none | none | banned by the fleet rule, and absent |
 
-Consequence: today a request can be **raised and cancelled but not completed**, and with no `BinStockLevelChanged`
-producer the bin-level copy stays empty, so detection finds no reserve stock (`NO_SOURCE`). The sweep endpoint and the
-pick-face view report this state instead of failing. The slot-plan and layout edges are the only fully live inputs.
+Consequence: a request can be **raised and cancelled but not yet completed end to end**. The bin-level copy is fed by
+inventory-storage's `BinStockLevelChanged`, and the completion side exists in fulfillment-execution and
+inventory-storage, but wes-work-planning neither consumes `ReplenishmentRequested` nor releases `REPLENISH` work, so no
+task is ever created for a request. Until a bin changes, its level is unknown and detection reports `NO_SOURCE`
+(inventory-storage has no backfill); the sweep endpoint and the pick-face view report this state instead of failing.
 
 ```mermaid
 flowchart LR
@@ -42,18 +45,33 @@ flowchart LR
     WP["wes-work-planning"]
     FE["fulfillment-execution"]
     OPS["warehouse-ops-agent / console"]
-    INV -->|"StockRelocated (reason REPLENISHMENT not yet produced)"| PFR
-    INV -.->|"BinStockLevelChanged (producer absent)"| PFR
+    INV -->|"StockRelocated (reason REPLENISHMENT)"| PFR
+    INV -->|BinStockLevelChanged| PFR
     SLOT -->|SlotPlanApproved| PFR
     LAY -->|"Zone / Location events"| PFR
     PFR -.->|"ReplenishmentRequested (no consumer)"| WP
-    WP -.->|"REPLENISH work (planned)"| FE
-    FE -.->|"RelocateStock (planned)"| INV
+    WP -.->|"WorkReleased with replenishment (no producer)"| FE
+    FE -->|"TaskCompleted with request_ref"| INV
     PFR -.->|REST, later phase| OPS
 ```
 
-Source: `internal/adapters/inbound/kafka/*_consumer.go`, `apis/asyncapi.yaml`, ADR 0001 context map. Solid arrows exist
-as producer and consumer; dotted arrows are absent or planned.
+Source: `internal/adapters/inbound/kafka/*_consumer.go`, `apis/asyncapi.yaml`, ADR 0001 context map, and each sibling's
+`apis/asyncapi.yaml` and ADRs on `origin/develop`. Solid arrows exist as producer and consumer; dotted arrows lack a
+producer or a consumer.
+
+### Status since the ADRs
+
+ADRs are immutable, so their statements keep their date. Read these against `origin/develop` of the siblings:
+
+| ADR statement | Status now |
+| --- | --- |
+| ADR 0001: `BinStockLevelChanged` producer change P1 is planned | built: inventory-storage ADR 0040 |
+| ADR 0001: P4 (`TaskCompleted` of a `REPLENISH` task becomes a relocation with reason `REPLENISHMENT`) is planned, not built | built: fulfillment-execution ADR 0050 publishes `TaskCompleted` with `request_ref`, inventory-storage ADR 0041 applies it |
+| ADR 0001: P3 (`WorkReleased` with a `replenishment` object creates a `REPLENISH` task) is planned, not built | consumer built in fulfillment-execution (ADR 0050); wes-work-planning does not emit the object |
+| ADR 0001: P3b (wes-work-planning turns `ReplenishmentRequested` into `REPLENISH` work) is planned, not built | still not built |
+| ADR 0003: `BinStockLevelChanged` is a pending producer change; until P1 ships `bin_stock_levels` stays empty | shipped; no backfill, so a bin is learned at its next change |
+| ADR 0003: until P4 ships no relocation carries `REPLENISHMENT` | shipped (inventory-storage ADR 0041) |
+| ADR 0003: slotting-optimization's relocation consumer does not filter on `reason` | it acts only on reason `SLOTTING` and counts other reasons as unmatched (`internal/application/usecases/record_relocation.go`) |
 
 ## Consumed contracts in detail
 
@@ -72,8 +90,10 @@ database transaction with the `processed_events` claim (see the [Runbook](/docs/
 A location and its zone may arrive in any order; they are joined when read. A bin whose location is unknown counts as a
 pick face (permissive until the layout converges), but never as a reserve bin.
 
-Consumer-first caveat: this service accepts `BinStockLevelChanged` and the `REPLENISHMENT` reason before the producers
-ship them. If inventory-storage's final contract differs, the fix is a follow-up PR here (ADR 0003).
+Consumer-first note: this service pinned `BinStockLevelChanged` and the `REPLENISHMENT` reason before the producers
+shipped them (ADR 0003). Both have shipped, and the fields this service reads match inventory-storage's
+`apis/asyncapi.yaml` (`BinStockLevelChangedEvent`, `StockRelocatedEvent`) on `origin/develop`, so no follow-up change
+here was needed.
 
 ## Published contract
 
