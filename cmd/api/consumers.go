@@ -11,115 +11,119 @@ import (
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 )
 
-// Consumer modes (INVENTORY_MODE, SLOTTING_MODE, LAYOUT_MODE).
+// Consumer modes (INVENTORY_MODE, SLOTTING_MODE, LAYOUT_MODE). The variables
+// stay (the fleet docs and the template rule files name them) but there is one
+// runtime: every consumer reads real Kafka. "permissive" used to mean "do not
+// start this consumer"; it is rejected at boot.
 const (
-	modePermissive = "permissive"
 	modeKafka      = "kafka"
+	modePermissive = "permissive"
 )
 
-// parseConsumerMode validates a *_MODE value ("" and "permissive" = no
-// consumer: the local copies are whatever the database holds).
+// parseConsumerMode validates a *_MODE value: unset or "kafka" is the one
+// supported mode, "permissive" is refused with its own message and anything
+// else is unknown.
 func parseConsumerMode(name, raw string) (string, error) {
-	switch raw {
-	case "", modePermissive:
-		return modePermissive, nil
-	case modeKafka:
+	if raw == "" || raw == modeKafka {
 		return modeKafka, nil
-	default:
-		return "", fmt.Errorf("unknown %s %q (want kafka or permissive)", name, raw)
 	}
+	if raw == modePermissive {
+		return "", fmt.Errorf("%s=permissive is not supported: this context runs on real Kafka", name)
+	}
+	return "", fmt.Errorf("unknown %s %q (want kafka)", name, raw)
 }
 
-// consumerSpec is one consumer: its mode and group variables and how to build
-// it once both are resolved.
-type consumerSpec struct {
+// consumerEnv names the two variables of one consumer.
+type consumerEnv struct {
 	modeEnv, groupEnv string
-	build             func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer
 }
 
-// consumerSpecs lists the three consumers (ADR 0003). The group ids come from
+// consumerEnvs lists the three consumers (ADR 0003). The group ids come from
 // the environment, never from a literal.
-func consumerSpecs(ad adapters, zones usecases.ZoneConfig) []consumerSpec {
+var consumerEnvs = []consumerEnv{
+	{"INVENTORY_MODE", "INVENTORY_CONSUMER_GROUP"},
+	{"SLOTTING_MODE", "SLOTTING_CONSUMER_GROUP"},
+	{"LAYOUT_MODE", "LAYOUT_CONSUMER_GROUP"},
+}
+
+// plannedConsumer is a consumer with its resolved group.
+type plannedConsumer struct {
+	env   consumerEnv
+	group string
+}
+
+// planConsumers resolves every consumer's mode and group from the environment
+// and refuses to boot on a misconfiguration: a mode other than kafka, or a
+// missing group variable. Every problem is reported, not only the first.
+func planConsumers() ([]plannedConsumer, error) {
+	planned := make([]plannedConsumer, 0, len(consumerEnvs))
+	var errs []error
+	for _, env := range consumerEnvs {
+		p, err := planConsumer(env)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		planned = append(planned, p)
+	}
+	return planned, errors.Join(errs...)
+}
+
+func planConsumer(env consumerEnv) (plannedConsumer, error) {
+	if _, err := parseConsumerMode(env.modeEnv, os.Getenv(env.modeEnv)); err != nil {
+		return plannedConsumer{}, err
+	}
+	group := os.Getenv(env.groupEnv)
+	if group == "" {
+		return plannedConsumer{}, fmt.Errorf("%s is required: this context runs on real Kafka", env.groupEnv)
+	}
+	return plannedConsumer{env: env, group: group}, nil
+}
+
+// consumerBuilder builds one consumer once its group is resolved.
+type consumerBuilder func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer
+
+// consumerBuilders maps each consumer's mode variable to its builder.
+func consumerBuilders(ad adapters, zones usecases.ZoneConfig) map[string]consumerBuilder {
 	intake, eval := ad.intake(), ad.evaluator(zones)
-	return []consumerSpec{
-		{"INVENTORY_MODE", "INVENTORY_CONSUMER_GROUP", func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer {
+	return map[string]consumerBuilder{
+		"INVENTORY_MODE": func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer {
 			level := &usecases.ApplyBinLevel{Intake: intake, Eval: eval}
 			relocation := &usecases.ApplyRelocation{Intake: intake, Requests: ad.requests, Events: ad.events, Clock: ad.clock}
 			return inboundkafka.NewInventoryConsumer(brokers, group, level, relocation, logger)
-		}},
-		{"SLOTTING_MODE", "SLOTTING_CONSUMER_GROUP", func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer {
+		},
+		"SLOTTING_MODE": func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer {
 			return inboundkafka.NewSlottingConsumer(brokers, group, &usecases.ApplyForwardAssignmentMap{Intake: intake, Eval: eval}, logger)
-		}},
-		{"LAYOUT_MODE", "LAYOUT_CONSUMER_GROUP", func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer {
+		},
+		"LAYOUT_MODE": func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer {
 			return inboundkafka.NewLayoutConsumer(brokers, group, inboundkafka.LayoutUseCases{
 				Zone:           &usecases.ApplyZone{Intake: intake, Read: ad.read},
 				Registered:     &usecases.ApplyLocationRegistered{Intake: intake, Read: ad.read},
 				Decommissioned: &usecases.ApplyLocationDecommissioned{Intake: intake, Read: ad.read},
 			}, logger)
-		}},
+		},
 	}
 }
 
-// plannedConsumer is a consumer whose mode is kafka, with its resolved group.
-type plannedConsumer struct {
-	spec  consumerSpec
-	group string
-}
-
-// planConsumers resolves every consumer's mode and group from the environment
-// and refuses to boot on a misconfiguration: an unknown mode, or mode kafka
-// without its group variable or without KAFKA_BROKERS.
-func planConsumers(specs []consumerSpec, brokers []string) ([]plannedConsumer, error) {
-	var planned []plannedConsumer
-	for _, spec := range specs {
-		mode, err := parseConsumerMode(spec.modeEnv, os.Getenv(spec.modeEnv))
-		if err != nil {
-			return nil, err
-		}
-		if mode != modeKafka {
-			continue
-		}
-		group := os.Getenv(spec.groupEnv)
-		if group == "" {
-			return nil, fmt.Errorf("%s=kafka requires %s", spec.modeEnv, spec.groupEnv)
-		}
-		planned = append(planned, plannedConsumer{spec: spec, group: group})
-	}
-	if len(planned) > 0 && len(brokers) == 0 {
-		return nil, errors.New("a consumer in kafka mode requires KAFKA_BROKERS")
-	}
-	return planned, nil
-}
-
-// startConsumers starts every consumer whose mode is kafka and returns their
-// workers and the func that stops them. The readers dial lazily inside Run, so
-// a broker outage never blocks boot; each worker closes its own reader and
-// dead-letter writer once Run has returned. durable reports whether the local
-// copies live in a database: in-memory copies are lost on restart while the
-// committed offsets are not, so that combination is warned about.
-func startConsumers(ad adapters, zones usecases.ZoneConfig, brokers []string, durable bool, logger *slog.Logger) ([]*worker, func(), error) {
-	planned, err := planConsumers(consumerSpecs(ad, zones), brokers)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(planned) == 0 {
-		logger.Info("no consumer is in kafka mode; the local copies are whatever the database holds")
-		return nil, func() {}, nil
-	}
-	if !durable {
-		logger.Warn("consumers run over in-memory adapters (DATABASE_URL is not set): the local copies are lost on restart while the committed offsets are kept")
-	}
+// startConsumers starts every planned consumer and returns their workers and
+// the func that stops them. The readers dial lazily inside Run, so a broker
+// outage (or a topic that does not exist yet) never blocks boot or crashes the
+// process: the consumer logs and retries, and /readyz reports not-ready until
+// the broker and its topics are there. Each worker closes its own reader and
+// dead-letter writer once Run has returned.
+func startConsumers(ad adapters, zones usecases.ZoneConfig, brokers []string, planned []plannedConsumer, logger *slog.Logger) ([]*worker, func()) {
+	builders := consumerBuilders(ad, zones)
 	ctx, stop := context.WithCancel(context.Background())
 	workers := make([]*worker, 0, len(planned))
 	for _, p := range planned {
-		workers = append(workers, runConsumer(ctx, p.spec.build(brokers, p.group, logger), p, brokers, logger))
+		workers = append(workers, runConsumer(ctx, builders[p.env.modeEnv](brokers, p.group, logger), p, brokers, logger))
 	}
-	return workers, stop, nil
+	return workers, stop
 }
 
 // runConsumer runs one consumer in its own goroutine until ctx is cancelled.
 func runConsumer(ctx context.Context, consumer *inboundkafka.Consumer, p plannedConsumer, brokers []string, logger *slog.Logger) *worker {
-	w := &worker{name: p.spec.modeEnv, done: make(chan struct{})}
+	w := &worker{name: p.env.modeEnv, done: make(chan struct{})}
 	go func() {
 		defer close(w.done)
 		defer func() {
