@@ -131,7 +131,14 @@ func newDatabase(t *testing.T, template string) string {
 // the test ends.
 func NewPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, err := postgres.NewPool(context.Background(), URL(t))
+	return Open(t, URL(t))
+}
+
+// Open returns a pool on the database at databaseURL (one of URL/EmptyURL),
+// closed when the test ends.
+func Open(t *testing.T, databaseURL string) *pgxpool.Pool {
+	t.Helper()
+	pool, err := postgres.NewPool(context.Background(), databaseURL)
 	if err != nil {
 		t.Fatalf("pool: %v", err)
 	}
