@@ -51,10 +51,12 @@ The three `*_MODE` variables are kept for the deployment contract, but there is 
 
 ### Readiness
 
-`GET /readyz` is ready only when the shutdown drain gate is open, Postgres answers a ping and Kafka answers a metadata
-request with a leader for every topic the service consumes or produces. The verdict is cached for 3 s and a round of
-checks is bounded by 2 s. The service never creates topics: a topic that does not exist yet makes `/readyz` answer
-`503` (`dependency-unavailable`, `not ready: kafka`) until infrastructure creates it. `GET /healthz` is liveness only.
+`GET /readyz` is ready only when the shutdown drain gate is open, Postgres answers a ping and a Kafka broker answers a
+metadata request that names no topic (reachability only). The verdict is cached for 3 s and a round of checks is
+bounded by 2 s. Topics are **not** part of readiness: the service never creates topics through an admin API, the cluster
+broker auto-creates them on first write (the relay's writer sets `AllowAutoTopicCreation`; infrastructure declares none),
+and a consumed topic that does not exist yet shows as consumer retry logs, never as `503`. An unreachable broker or
+database answers `503` (`dependency-unavailable`, `not ready: kafka`). `GET /healthz` is liveness only.
 
 ## Fixed values (not configurable)
 
@@ -93,7 +95,7 @@ fails when `cmd/api` reads a variable the chart does not render.
 | `config.shutdownDrainDelay` | `SHUTDOWN_DRAIN_DELAY` | no | not rendered (binary: `5s`) |
 
 The DSNs live in a Secret only; everything else is also mounted from the chart ConfigMap with `envFrom`. Probes:
-`startupProbe` and `livenessProbe` on `/healthz`, `readinessProbe` on `/readyz` (which checks Postgres and Kafka, so a
+`startupProbe` and `livenessProbe` on `/healthz`, `readinessProbe` on `/readyz` (which checks Postgres and that a Kafka broker answers, not topics, so a
 broker outage takes the pod out of the Service by design; period 10 s, timeout 5 s, 3 failures). The pod runs as uid
 1000, non-root, with a read-only root filesystem and every capability dropped.
 `terminationGracePeriodSeconds` is 40: `SHUTDOWN_DRAIN_DELAY` (5 s) + 10 s HTTP drain + 10 s consumers + 10 s relay, and
