@@ -94,8 +94,8 @@ func TestA5xxAnswerIsRolledBackAndNeverStored(t *testing.T) {
 	if f.openRequests(t) != 0 {
 		t.Fatal("the failed request's effects were not rolled back")
 	}
-	if f.store.saves != 0 {
-		t.Fatalf("a 5xx answer was stored (%d saves)", f.store.saves)
+	if saves := f.store.saves.Load(); saves != 0 {
+		t.Fatalf("a 5xx answer was stored (%d saves)", saves)
 	}
 	f.events.requestErr = nil
 	f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-5xx")

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -88,7 +89,7 @@ type faultyStore struct {
 	// beforeSave runs before the first Save of a key lands, to play the
 	// request that wins a race.
 	beforeSave func(rec repository.IdempotencyRecord)
-	saves      int
+	saves      atomic.Int32
 }
 
 func (s *faultyStore) Lookup(ctx context.Context, key string) (repository.IdempotencyRecord, bool, error) {
@@ -99,7 +100,7 @@ func (s *faultyStore) Lookup(ctx context.Context, key string) (repository.Idempo
 }
 
 func (s *faultyStore) Save(ctx context.Context, rec repository.IdempotencyRecord) error {
-	s.saves++
+	s.saves.Add(1)
 	if s.saveErr != nil {
 		return s.saveErr
 	}
