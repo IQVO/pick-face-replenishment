@@ -58,9 +58,16 @@ below are the intended ones (see `.claude/rules/domain-model.md`).
   `replenishment-not-open` (cancelling a Completed or Cancelled request),
   `concurrent-modification`.
 - 422 (well-formed but state forbids it): `no-forward-assignment`, `no-policy`,
-  `no-source-stock`, `quantity-exceeds-max`, `idempotency-key-reused`. These
-  map the domain errors `ErrExceedsMax`, `ErrExceedsSourceStock` and
-  `ErrNotOpen` of `internal/domain/replenishment/values.go`.
+  `no-source-stock`, `nothing-to-replenish` (no `quantity` on a pick face above
+  its minimum), `quantity-exceeds-max`, `idempotency-key-reused`. These map the
+  application errors `ErrNoForwardAssignment`, `ErrNoPolicy`,
+  `ErrNoSourceStock` and `ErrNothingToReplenish` of
+  `internal/application/usecases/usecases.go` and the domain errors
+  `ErrExceedsMax` and `ErrExceedsSourceStock` (`no-source-stock`) of
+  `internal/domain/replenishment/values.go`. `ErrNotOpen` is the 409
+  `replenishment-not-open`, not a 422.
+- Path ids longer than 64 characters are 400 `invalid-site-id` / `invalid-sku`
+  (the OpenAPI `maxLength`).
 - A domain error never leaks as a raw message; the adapter maps it to a slug
   above and adding a slug means adding its example to `apis/openapi.yaml`.
 - Request ids are `repl-<uuid>`, at most 64 characters.
