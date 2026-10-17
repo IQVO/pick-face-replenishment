@@ -15,7 +15,9 @@ Pick-Face Replenishment: WMS-tier Supporting bounded context of the warehouse-sy
   sweep `POST /sites/{siteId}/evaluate`, or by hand with `POST /replenishments`. The source is the fullest reserve bin.
 - Completes the request from inventory-storage's `StockRelocated` (reason `REPLENISHMENT`) and publishes
   `ReplenishmentRequested`, `ReplenishmentCompleted` and `ReplenishmentCancelled` through a transactional outbox.
-- One binary: `cmd/api` (REST on `:8080`, the outbox relay and three opt-in Kafka consumers). No auth, no MCP.
+- One binary: `cmd/api` (REST on `:8080`, the outbox relay and three Kafka consumers, all always on). It runs on real
+  Postgres and real Kafka only: there is no in-memory mode ([ADR 0006](docs/adr/0006-postgres-and-kafka-are-the-only-runtime.md)).
+  No auth, no MCP.
 
 The execution chain after `ReplenishmentRequested` (wes-work-planning, fulfillment-execution, a relocation with reason
 `REPLENISHMENT`) is planned, not built, and inventory-storage does not publish `BinStockLevelChanged` yet; see
@@ -23,10 +25,22 @@ The execution chain after `ReplenishmentRequested` (wes-work-planning, fulfillme
 
 ## Run it
 
+The service needs Postgres and Kafka and refuses to boot without `DATABASE_URL`, `KAFKA_BROKERS` and the three
+`*_CONSUMER_GROUP` variables. `make run-local` brings both up with `docker-compose.yml` (a job creates the five topics:
+the service never creates topics) and runs the service on them; host ports 5432 and 9092 must be free:
+
+```bash
+make run-local     # docker compose up Postgres + Kafka + topics, then go run ./cmd/api
+make local-down    # stop them (the Postgres volume is kept)
+```
+
+Or by hand against infrastructure you already have:
+
 ```bash
 go build -o /tmp/pfr-api ./cmd/api
-HTTP_ADDR=:18080 /tmp/pfr-api                                   # in memory, REST only
-HTTP_ADDR=:18080 'DATABASE_URL=postgres://...' /tmp/pfr-api     # Postgres, migrations run at boot
+HTTP_ADDR=:18080 DATABASE_URL='postgres://...' KAFKA_BROKERS=broker:9092 \
+  INVENTORY_CONSUMER_GROUP=pfr-inventory SLOTTING_CONSUMER_GROUP=pfr-slotting LAYOUT_CONSUMER_GROUP=pfr-layout \
+  /tmp/pfr-api        # migrations run at boot
 ```
 
 Every variable is on [Configuration](docs/docs/operations/configuration.md); the first calls are in the
@@ -45,7 +59,7 @@ The site is built from `docs/` (Docusaurus) and published at <https://iqvo.githu
 | DDD artifacts | [Core domain chart](docs/docs/ddd/core-domain-chart.md), [Bounded context canvas](docs/docs/ddd/bounded-context-canvas.md), [Context map](docs/docs/ddd/context-map.md), [Aggregate design canvas](docs/docs/ddd/aggregate-design-canvas.md), [Domain message flow](docs/docs/ddd/domain-message-flow.md), [EventStorming](docs/docs/ddd/eventstorming.md), [Class diagrams](docs/docs/ddd/class-diagram.md), [Entity-relationship](docs/docs/ddd/entity-relationship.md), [Sequence diagrams](docs/docs/ddd/sequence-diagrams.md), [Domain events](docs/docs/ddd/domain-events.md) |
 | API reference | [API overview](docs/docs/api-reference/overview.md), [Event catalogue](docs/docs/api-reference/events.md), `apis/openapi.yaml`, `apis/asyncapi.yaml` |
 | Ecosystem | [Integration](docs/docs/ecosystem/integration.md) |
-| Architecture decisions | [ADR index](docs/adr/index.md): ADRs 0001 to 0005 in `docs/adr/` |
+| Architecture decisions | [ADR index](docs/adr/index.md): ADRs 0001 to 0006 in `docs/adr/` |
 
 Build the site locally with `cd docs && npm ci && npm run build`. The `Docs` workflow builds it on every pull request and
 deploys it from `main`.
@@ -56,7 +70,8 @@ deploys it from `main`.
 | --- | --- |
 | `make check` / `make check-all` | fast gate / fast gate plus coverage (90 %), architecture tests and BDD |
 | `make test`, `make bdd`, `make arch-test` | unit, godog features, hexagonal and fleet fitness tests |
-| `make integration` | testcontainers suites (needs Docker) |
+| `make integration` | testcontainers suites (needs Docker), including the end-to-end test that boots `run()` on real Postgres and Kafka |
+| `make run-local` / `make local-down` | the service on a docker-compose Postgres + Kafka / stop them |
 | `make mutation` | gremlins over the four domain packages |
 
 See [Testing](docs/docs/development/testing.md) for the CI jobs.

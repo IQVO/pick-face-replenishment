@@ -32,27 +32,33 @@ sidebar_position: 3
 | `make check-all` | `check` + `coverage arch-test bdd` (run before pushing) |
 | `make check-fast`, `make guide-lint`, `make harness-test` | agent-harness gates |
 
-## Run in memory
+## Run locally
 
-Without `DATABASE_URL` the service uses in-memory adapters: there is no outbox relay, `Idempotency-Key` is not enforced
-and nothing survives a restart.
+There is no in-memory mode: the service needs a real Postgres and a real Kafka ([ADR 0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime))
+and refuses to boot without `DATABASE_URL`, `KAFKA_BROKERS` and the three `*_CONSUMER_GROUP` variables, naming the
+missing one. The topics are owned by infrastructure; the service never creates them.
+
+```bash
+make run-local     # docker compose: Postgres + Kafka + the five topics, then go run ./cmd/api
+make local-down    # stop them (the Postgres volume is kept)
+```
+
+`make run-local` needs host ports 5432 and 9092 free. The migrations are embedded and run at boot. The service logs the
+topics it consumes and produces, then `http server listening`. `/readyz` answers `200` once Postgres answers and Kafka
+has a leader for each of the five topics; until then it answers `503` `dependency-unavailable` and `/healthz` is `200`.
+What it waits for is on the [Runbook](/docs/operations/runbook#readiness-and-shutdown).
+
+By hand, against infrastructure you already have:
 
 ```bash
 go build -o /tmp/pfr-api ./cmd/api
-HTTP_ADDR=:18080 /tmp/pfr-api
+HTTP_ADDR=:18080 DATABASE_URL='postgres://...' KAFKA_BROKERS=localhost:9092 \
+  INVENTORY_CONSUMER_GROUP=pfr-local-inventory SLOTTING_CONSUMER_GROUP=pfr-local-slotting LAYOUT_CONSUMER_GROUP=pfr-local-layout \
+  /tmp/pfr-api
 ```
 
-Real startup log (JSON, one object per line):
-
-```text
-{"level":"INFO","msg":"DATABASE_URL not configured; using in-memory adapters (no outbox relay, Idempotency-Key not enforced)"}
-{"level":"INFO","msg":"no consumer is in kafka mode; the local copies are whatever the database holds"}
-{"level":"INFO","msg":"outbox relay off: in-memory mode has no outbox"}
-{"level":"INFO","msg":"http server listening","addr":":18080"}
-```
-
-In this mode the local copies (bin levels, forward map, layout) can only be fed by the Kafka consumers, so without a
-broker `GET /pick-faces` stays empty:
+The local copies (bin levels, forward map, layout) are fed by the three Kafka consumers, so until the producers publish
+`GET /pick-faces` stays empty:
 
 ```bash
 curl -s -X PUT localhost:18080/policies/SITE-1/SKU-1 -H 'Content-Type: application/json' \
@@ -60,34 +66,14 @@ curl -s -X PUT localhost:18080/policies/SITE-1/SKU-1 -H 'Content-Type: applicati
 # 200 {"siteId":"SITE-1","sku":"SKU-1","minQty":10,"maxQty":60,"multiple":6,"version":1,"declaredAt":"2026-10-17T09:20:45.952247Z"}
 curl -s 'localhost:18080/pick-faces?siteId=SITE-1'
 # 200 {"items":[]}
-curl -s -X POST localhost:18080/replenishments -H 'Content-Type: application/json' -d '{"siteId":"SITE-1","sku":"SKU-1"}'
+curl -s -X POST localhost:18080/replenishments -H 'Idempotency-Key: first-1' -H 'Content-Type: application/json' -d '{"siteId":"SITE-1","sku":"SKU-1"}'
 # 422 application/problem+json, type .../no-forward-assignment
 ```
 
-## Run on Postgres
-
-Start a throwaway database and the service. The migrations are embedded and run at boot.
-
-```bash
-docker run -d --name pfr-pg -e POSTGRES_PASSWORD=pfr -e POSTGRES_DB=pfr -p 55432:5432 postgres:16
-HTTP_ADDR=:18080 'DATABASE_URL=postgres://postgres:pfr@localhost:55432/pfr?sslmode=disable' /tmp/pfr-api
-```
-
-```text
-{"level":"INFO","msg":"postgres adapters configured"}
-{"level":"INFO","msg":"no consumer is in kafka mode; the local copies are whatever the database holds"}
-{"level":"WARN","msg":"outbox relay off: KAFKA_BROKERS is not set; events accumulate in outbox_events until it is"}
-{"level":"INFO","msg":"http server listening","addr":":18080"}
-```
-
-`/readyz` answers `200 {"status":"ready"}` as soon as the listener is up. What it does and does not wait for is on the
-[Runbook](/docs/operations/runbook#readiness-and-shutdown).
-
 ### Seed the local copies
 
-The consumers are opt-in (`INVENTORY_MODE`, `SLOTTING_MODE`, `LAYOUT_MODE`, default `permissive` = not started), so in
-local development the three read-model tables are simply whatever the database holds. To exercise detection without a
-broker, insert the rows the consumers would have written (this is the exact seed used for the calls below):
+To exercise detection without producing the upstream events, insert the rows the consumers would have written (this is
+the exact seed used for the calls below):
 
 ```sql
 INSERT INTO forward_assignment_maps (site_id, plan_id, approved_at) VALUES ('SITE-1','plan-demo-1','2026-10-17T08:00:00Z');
@@ -148,9 +134,10 @@ curl -s -X POST localhost:18080/replenishments/repl-c4d022ba-da77-4729-bd02-ea88
 ```
 
 The request is completed by inventory-storage's `StockRelocated` (reason `REPLENISHMENT`, `source_ref` = the request
-id), which only arrives through the Kafka inventory consumer, so a broker-less run can raise and cancel but not complete.
+id), which arrives through the Kafka inventory consumer.
 
-Every state change wrote its events to `outbox_events` in the same transaction (the relay is off, so they wait there):
+Every state change wrote its events to `outbox_events` in the same transaction; the relay then publishes them (the rows
+below are the ones written before the relay claimed them):
 
 ```text
  id | topic                                       | event_type                                                                      | subject
@@ -167,24 +154,17 @@ Finally `DELETE /policies/SITE-1/SKU-1` needs `If-Match`: without it `400 invali
 
 ## Kafka
 
-The fleet has **one** Kafka broker (in-cluster Bitnami, external access at `localhost:9092` from the kind cluster); the
-docker-compose Kafka is retired. To run against it:
+All three consumers and the outbox relay always run. The fleet has **one** shared Kafka broker (in-cluster Bitnami,
+external access at `localhost:9092` from the kind cluster); `make run-local` starts its own broker on the same host
+port, so with the kind cluster up either stop it or run the binary by hand (see *Run locally*) with `KAFKA_BROKERS`
+pointing at the shared broker.
 
-```bash
-HTTP_ADDR=:18080 'DATABASE_URL=postgres://postgres:pfr@localhost:55432/pfr?sslmode=disable' \
-KAFKA_BROKERS=localhost:9092 \
-INVENTORY_MODE=kafka INVENTORY_CONSUMER_GROUP=pfr-local-inventory \
-SLOTTING_MODE=kafka SLOTTING_CONSUMER_GROUP=pfr-local-slotting \
-LAYOUT_MODE=kafka LAYOUT_CONSUMER_GROUP=pfr-local-layout \
-/tmp/pfr-api
-```
-
-- Each consumer is started only when its `*_MODE` is `kafka`; then its `*_CONSUMER_GROUP` is required and so is
-  `KAFKA_BROKERS`, or the process refuses to boot ([Configuration](/docs/operations/configuration#consumer-modes)).
+- Every `*_CONSUMER_GROUP` and `KAFKA_BROKERS` is required, or the process refuses to boot
+  ([Configuration](/docs/operations/configuration#mandatory-configuration)). `*_MODE=permissive` is refused too.
 - A new consumer group starts at the first offset, so the local copies are rebuilt by replaying the whole topic.
 - Use group ids of your own: two processes sharing a group split the partitions between them.
-- The relay starts when `DATABASE_URL` and `KAFKA_BROKERS` are both set and publishes to
-  `warehouse.pick-face-replenishment.events` and `.analytics` on that shared broker.
+- The relay publishes to `warehouse.pick-face-replenishment.events` and `.analytics`. The topics must exist: the
+  service never creates them, and `/readyz` stays `503` until they do.
 - The service has no Dockerfile, Helm chart or `warehouse-infra` entry on `develop` yet, so it is not part of the kind
   cluster ([Runbook](/docs/operations/runbook#deployment-status)).
 
