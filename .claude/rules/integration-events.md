@@ -22,7 +22,7 @@ on the scaffold writer in `internal/adapters/outbound/kafka/writer.go`: set
 `Message.Topic` per message and never add a Topic to the Writer. The consumers
 are in `internal/adapters/inbound/kafka`; `cmd/api` wires them.
 
-Topics follow the fleet convention (warehouse-infra `terraform/kafka.tf`): the
+Topics follow the fleet convention (warehouse-infra's Kafka Terraform): the
 cluster broker auto-creates every business topic on first write and
 infrastructure declares none, so the relay's Writer sets
 `AllowAutoTopicCreation: true` (`TestNewWriterAllowsAutoTopicCreation`). The
