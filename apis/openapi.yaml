@@ -208,8 +208,9 @@ paths:
         `available = onHand - reserved`. `status` is `BELOW_MIN` when the
         projected level (available plus the open request, if any) is at or below
         the policy minimum, `OK` otherwise, `NO_POLICY` when no policy is
-        declared, and `NO_SOURCE` when the level is low but no reserve bin can
-        supply it. Read from the event-fed local copies (ADR 0003).
+        declared, and `NO_SOURCE` when the level is low but nothing can be moved:
+        no reserve bin holds usable stock, or less than one `multiple` fits.
+        Read from the event-fed local copies (ADR 0003).
       tags: [Pick faces]
       parameters:
         - name: siteId
@@ -833,8 +834,8 @@ components:
       type: string
       description: |
         `BELOW_MIN`: the projected level is at or below the minimum. `OK`: above
-        it. `NO_POLICY`: no policy declared. `NO_SOURCE`: low, but no reserve bin
-        can supply it.
+        it. `NO_POLICY`: no policy declared. `NO_SOURCE`: low, but nothing can be
+        moved (no reserve bin holds usable stock, or less than one `multiple` fits).
       enum: [BELOW_MIN, OK, NO_SOURCE, NO_POLICY]
 
     DeclarePolicyRequest:
@@ -970,7 +971,7 @@ components:
         healthy: { type: integer, format: int32, minimum: 0, description: Faces above their minimum. }
         alreadyOpen: { type: integer, format: int32, minimum: 0, description: Faces that already have an open request. }
         noPolicy: { type: integer, format: int32, minimum: 0, description: Faces without a policy. }
-        noSource: { type: integer, format: int32, minimum: 0, description: Low faces no reserve bin can supply. }
+        noSource: { type: integer, format: int32, minimum: 0, description: "Low faces where nothing can be moved: no usable reserve stock, or less than one multiple fits." }
         requestIds:
           type: array
           description: The requests raised, in forward-bin order.
