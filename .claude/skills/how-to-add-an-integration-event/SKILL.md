@@ -173,9 +173,9 @@ integration-event mistake in this fleet (real incident: wes-work-planning#67).
 **Pattern A, stable group from env.** Use when the consumer resumes from its
 committed offset (a durable local copy, a work queue, an analytics projector).
 This is what ALL consumers of this service use: `INVENTORY_CONSUMER_GROUP`,
-`SLOTTING_CONSUMER_GROUP`, `LAYOUT_CONSUMER_GROUP`, each switched on by its mode
-env (`INVENTORY_MODE`, `SLOTTING_MODE`, `LAYOUT_MODE`, default `permissive`;
-`kafka` without its group env is a boot error). The group id is NEVER a string
+`SLOTTING_CONSUMER_GROUP`, `LAYOUT_CONSUMER_GROUP`, each always running (the mode
+envs `INVENTORY_MODE`, `SLOTTING_MODE`, `LAYOUT_MODE` default to `kafka` and
+`permissive` is rejected; a missing group env is a boot error). The group id is NEVER a string
 literal (`TestKafkaConsumerGroupNeverHardcodedInline`), because a local
 process joining the same group as the live in-cluster Deployment would starve
 one of them.

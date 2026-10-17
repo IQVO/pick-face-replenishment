@@ -15,6 +15,7 @@ import (
 
 	kafkaconsumer "github.com/claudioed/pick-face-replenishment/internal/adapters/inbound/kafka"
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/memory"
+	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/system"
 	"github.com/claudioed/pick-face-replenishment/internal/application/repository"
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 	"github.com/claudioed/pick-face-replenishment/internal/domain/policy"
@@ -132,7 +133,7 @@ func (w *world) intake() usecases.Intake {
 func (w *world) eval() usecases.Evaluator {
 	return usecases.Evaluator{
 		Policies: w.policies, Requests: w.requests, Read: w.read, Events: w.log,
-		Clock: memory.SystemClock{}, IDs: memory.RandomIDs{}, Zones: usecases.DefaultZoneConfig(),
+		Clock: system.Clock{}, IDs: system.RandomIDs{}, Zones: usecases.DefaultZoneConfig(),
 	}
 }
 
@@ -182,7 +183,7 @@ type inventoryUCs struct {
 func inventoryUseCases(w *world) inventoryUCs {
 	return inventoryUCs{
 		level: &usecases.ApplyBinLevel{Intake: w.intake(), Eval: w.eval()},
-		reloc: &usecases.ApplyRelocation{Intake: w.intake(), Requests: w.requests, Events: w.log, Clock: memory.SystemClock{}},
+		reloc: &usecases.ApplyRelocation{Intake: w.intake(), Requests: w.requests, Events: w.log, Clock: system.Clock{}},
 	}
 }
 

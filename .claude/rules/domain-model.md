@@ -111,6 +111,8 @@ cannot disagree. Use cases (one file each):
 - Forward vs reserve is `usecases.ZoneConfig` (defaults `FWD` / `RSV`, env
   `RESERVE_ZONE_CODES`), passed in; no globals.
 - In-memory adapters for every port are in `internal/adapters/outbound/memory`
-  (BDD and `go run ./cmd/api` without `DATABASE_URL`). Acceptance scenarios are
-  `features/*.feature`, run as `TestFeatures` from `features_test.go`.
+  (BDD and the unit tests only; the runtime is Postgres + Kafka, ADR 0006).
+  Acceptance scenarios are `features/*.feature`, run as `TestFeatures` from
+  `features/features_test.go` (package `features_test`; no Go file lives at the
+  repo root, `TestNoGoFilesAtRepoRoot`).
 - Every use case reads event-fed local copies and calls no sibling context.

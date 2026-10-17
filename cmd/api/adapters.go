@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -9,15 +10,18 @@ import (
 
 	inboundhttp "github.com/claudioed/pick-face-replenishment/internal/adapters/inbound/http"
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/events"
-	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/memory"
 	outboxrelay "github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/outbox"
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/postgres"
+	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/system"
 	"github.com/claudioed/pick-face-replenishment/internal/application/ports"
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 	"github.com/claudioed/pick-face-replenishment/internal/bootretry"
 )
 
-// adapters is the set of outbound adapters the composition root wires.
+// adapters is the set of outbound adapters the composition root wires. They
+// are the real ones: Postgres for every repository and the outbox, the system
+// clock and random ids. There is no in-memory variant in the binary
+// (internal/architecture's TestRuntimeBinaryHasNoInMemoryAdapters).
 type adapters struct {
 	policies ports.PolicyRepo
 	requests ports.RequestRepo
@@ -29,22 +33,24 @@ type adapters struct {
 	// processed is the consumers' processed-event claim table.
 	processed ports.ProcessedEvents
 
-	// outbox is the relay's view of the outbox table; nil in the in-memory
-	// development mode, which has no relay.
+	// outbox is the relay's view of the outbox table.
 	outbox outboxrelay.Store
-	// idempotency is the Idempotency-Key middleware of the POSTs; nil in the
-	// in-memory development mode, which does not enforce the header.
+	// idempotency is the Idempotency-Key middleware of the POSTs.
 	idempotency func(http.Handler) http.Handler
+	// ping is the Postgres liveness check behind /readyz.
+	ping func(context.Context) error
 }
 
-// buildAdapters wires Postgres when databaseURL is set (running the embedded
-// migrations first) or in-memory adapters otherwise. The returned func closes
-// what was opened.
+// errNoDatabase is the boot error of a missing DATABASE_URL.
+var errNoDatabase = errors.New("DATABASE_URL is required: this context runs on real Postgres")
+
+// buildAdapters runs the embedded migrations against migrationsURL and wires
+// the Postgres adapters over databaseURL. The returned func closes what was
+// opened. An empty databaseURL is a boot error: there is no fallback runtime.
 func buildAdapters(ctx context.Context, databaseURL, migrationsURL string, logger *slog.Logger) (adapters, func(), error) {
 	noop := func() {}
 	if databaseURL == "" {
-		logger.Info("DATABASE_URL not configured; using in-memory adapters (no outbox relay, Idempotency-Key not enforced)")
-		return memoryAdapters(), noop, nil
+		return adapters{}, noop, errNoDatabase
 	}
 
 	// The first outbound dial of an injected pod can be reset (Istio native
@@ -67,24 +73,15 @@ func buildAdapters(ctx context.Context, databaseURL, migrationsURL string, logge
 	return postgresAdapters(pool), pool.Close, nil
 }
 
-func memoryAdapters() adapters {
-	policies, requests, read := memory.NewPolicyRepo(), memory.NewRequestRepo(), memory.NewReadModel()
-	log, processed := memory.NewEventLog(), memory.NewProcessedEventRepo()
-	return adapters{
-		policies: policies, requests: requests, read: read, events: log, processed: processed,
-		uow:   memory.NewUnitOfWork(policies, requests, read, log, processed),
-		clock: memory.SystemClock{}, ids: memory.RandomIDs{},
-	}
-}
-
 func postgresAdapters(pool *pgxpool.Pool) adapters {
 	ob := postgres.NewOutboxRepo(pool)
 	ad := adapters{
 		policies: postgres.NewPolicyRepo(pool), requests: postgres.NewRequestRepo(pool), read: postgres.NewReadModel(pool),
 		events: events.NewSink(ob), uow: postgres.NewUnitOfWork(pool),
-		clock: memory.SystemClock{}, ids: memory.RandomIDs{},
+		clock: system.Clock{}, ids: system.RandomIDs{},
 		processed: postgres.NewProcessedEventRepo(pool),
 		outbox:    ob,
+		ping:      pool.Ping,
 	}
 	ad.idempotency = inboundhttp.NewIdempotency(postgres.NewIdempotencyStore(pool), ad.uow, ad.clock).Middleware
 	return ad
@@ -121,6 +118,16 @@ func buildServer(a adapters, zones usecases.ZoneConfig, readiness *inboundhttp.R
 		Idempotency:   a.idempotency,
 		Readiness:     readiness,
 	}
+}
+
+// buildReadiness makes /readyz real: the drain gate AND a Postgres ping AND a
+// Kafka metadata check (brokers reachable, every runtime topic has a leader).
+// The verdict is cached for inboundhttp.DefaultReadinessTTL.
+func buildReadiness(a adapters, kafkaCheck func(context.Context) error) *inboundhttp.Readiness {
+	return inboundhttp.NewReadiness(0, 0,
+		inboundhttp.Dependency{Name: "postgres", Check: a.ping},
+		inboundhttp.Dependency{Name: "kafka", Check: kafkaCheck},
+	)
 }
 
 // migrationsDatabaseURL returns MIGRATIONS_DATABASE_URL when set (a direct

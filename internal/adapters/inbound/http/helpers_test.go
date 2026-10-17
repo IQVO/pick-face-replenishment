@@ -119,8 +119,8 @@ type fixture struct {
 	server    *httptest.Server
 }
 
-// newFixture serves the full API over in-memory adapters without the
-// Idempotency-Key middleware (the in-memory development mode).
+// newFixture serves the full API over in-memory test doubles without the
+// Idempotency-Key middleware (handler unit tests only; the binary never does).
 func newFixture(t *testing.T) *fixture { return build(t, false) }
 
 // newIdempotentFixture serves the API with the middleware on its POSTs.

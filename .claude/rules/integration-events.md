@@ -131,9 +131,12 @@ wes-work-planning's hardcoded group id let a locally-run e2e-tests process
 silently collide with the live in-cluster Deployment's consumer group on
 the shared fleet Kafka broker).
 
-Modes `INVENTORY_MODE`, `SLOTTING_MODE`, `LAYOUT_MODE` default to `permissive`;
-`kafka` without its group env, or without `KAFKA_BROKERS`, is a boot error
-(`cmd/api/consumers.go`). The local copies
+Every consumer always runs: this context has one runtime, real Postgres and real
+Kafka (ADR 0006). `INVENTORY_MODE`, `SLOTTING_MODE`, `LAYOUT_MODE` keep their
+names (the fleet docs name them) but default to `kafka`; `permissive` is
+rejected at boot (`<NAME>=permissive is not supported: this context runs on real
+Kafka`). A missing `*_CONSUMER_GROUP`, `KAFKA_BROKERS` or `DATABASE_URL` is a
+boot error naming the variable (`cmd/api/consumers.go`). The local copies
 are durable in Postgres and resume from the committed offset, so the groups are
 stable, not unique per process (the unique-per-instance rule in HARNESS.md's
 Kafka section is only for consumers that replay from FirstOffset into memory).
@@ -142,18 +145,19 @@ and the copies converge (an unseen bin reads as level 0, ADR 0005).
 
 | env | default | meaning |
 | --- | --- | --- |
-| `INVENTORY_MODE` | `permissive` | `kafka` starts the inventory consumer (`warehouse.inventory.events`); `permissive` starts none |
-| `INVENTORY_CONSUMER_GROUP` | none | group id of the inventory consumer; required when `INVENTORY_MODE=kafka` |
-| `SLOTTING_MODE` | `permissive` | `kafka` starts the slotting consumer (`warehouse.slotting-optimization.events`) |
-| `SLOTTING_CONSUMER_GROUP` | none | group id of the slotting consumer; required when `SLOTTING_MODE=kafka` |
-| `LAYOUT_MODE` | `permissive` | `kafka` starts the layout consumer (`warehouse.facility.events`) |
-| `LAYOUT_CONSUMER_GROUP` | none | group id of the layout consumer; required when `LAYOUT_MODE=kafka` |
-| `KAFKA_BROKERS` | none | comma-separated brokers; required by every consumer in `kafka` mode, and switches the outbox relay on |
+| `DATABASE_URL` | none | required: Postgres for state, idempotency and the outbox |
+| `KAFKA_BROKERS` | none | required: comma-separated brokers for the consumers, the outbox relay and `/readyz` |
+| `INVENTORY_MODE` | `kafka` | the inventory consumer (`warehouse.inventory.events`) always runs; `permissive` is rejected |
+| `INVENTORY_CONSUMER_GROUP` | none | required: group id of the inventory consumer |
+| `SLOTTING_MODE` | `kafka` | the slotting consumer (`warehouse.slotting-optimization.events`) always runs; `permissive` is rejected |
+| `SLOTTING_CONSUMER_GROUP` | none | required: group id of the slotting consumer |
+| `LAYOUT_MODE` | `kafka` | the layout consumer (`warehouse.facility.events`) always runs; `permissive` is rejected |
+| `LAYOUT_CONSUMER_GROUP` | none | required: group id of the layout consumer |
 | `RESERVE_ZONE_CODES` / `FORWARD_ZONE_CODES` | `RSV` / `FWD` | zone codes that make a location a reserve bin / a forward pick face |
 
-In-memory mode (no `DATABASE_URL`) can run the consumers, but its copies are
-lost on restart while the committed offsets are not: it logs a WARN and is for
-development only.
+There is no in-memory runtime: the local copies live in Postgres, so a restart
+loses nothing while the committed offsets survive it. The memory adapters exist
+for unit and BDD tests only.
 
 Failure handling (`internal/adapters/inbound/kafka`): each message is fetched,
 handled in ONE transaction together with its `processed_events` claim, and only
