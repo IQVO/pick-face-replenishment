@@ -40,10 +40,9 @@ below are the intended ones (see `.claude/rules/domain-model.md`).
   no `nextCursor` on the last page (400 `invalid-limit` / `invalid-cursor`).
 - `Idempotency-Key`: required on `POST /replenishments`,
   `POST /replenishments/{requestId}/cancel` and `POST /sites/{siteId}/evaluate`
-  whenever the service runs with Postgres (every deployment); absent is 400
+  whenever the service runs (it always runs on Postgres, ADR 0006); absent is 400
   `idempotency-key-required`. Same key and same body replays the original
   response; same key with a different body is 422 `idempotency-key-reused`.
-  The in-memory dev mode (no `DATABASE_URL`) does not enforce it.
 - `If-Match` carries the policy version (the `ETag` of a previous response,
   quoted or not): omitted creates, present replaces or removes. A stale value
   is 409 `concurrent-modification`; a non-integer is 400 `invalid-if-match`.
