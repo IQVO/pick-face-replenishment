@@ -1,0 +1,35 @@
+# Used by `helm lint` / `ct lint`: every optional value set at once.
+database:
+  existingSecret: "pick-face-replenishment-db"
+kafka:
+  brokers: "kafka-0.kafka.warehouse-systems.svc.cluster.local:9092,kafka-1.kafka.warehouse-systems.svc.cluster.local:9092"
+config:
+  logLevel: "debug"
+  outboxRelayInterval: "500ms"
+  outboxMaxAttempts: 20
+  forwardZoneCodes: "FWD,FWD2"
+  reserveZoneCodes: "RSV,BULK"
+  shutdownDrainDelay: "5s"
+  inventoryConsumerGroup: "pick-face-replenishment-inventory"
+  slottingConsumerGroup: "pick-face-replenishment-slotting"
+  layoutConsumerGroup: "pick-face-replenishment-layout"
+gatewayApi:
+  enabled: true
+  parentRefs:
+    - name: warehouse-gateway
+      namespace: kong
+      sectionName: http
+  hosts:
+    - path: /api/pick-face-replenishment
+      pathType: PathPrefix
+kongPlugins:
+  cors:
+    enabled: true
+    origin: "http://localhost"
+  prometheus:
+    enabled: true
+  opentelemetry:
+    enabled: true
+autoscaling:
+  api:
+    enabled: true

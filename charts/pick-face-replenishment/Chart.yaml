@@ -1,0 +1,12 @@
+apiVersion: v2
+name: pick-face-replenishment
+description: Pick-Face Replenishment — min/max policies per forward pick face and the replenishment requests that move stock from reserve bins; publishes Replenishment events on warehouse.pick-face-replenishment.events
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/IQVO/pick-face-replenishment
+keywords:
+  - ddd
+  - hexagonal-architecture
+  - warehouse-management-system
+  - golang
