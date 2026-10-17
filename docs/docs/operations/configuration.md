@@ -72,8 +72,35 @@ These are constants in code; changing one needs a code change.
 | list `limit` 1 to 500, default 100 | `internal/application/usecases/usecases.go` |
 | consumer claim names in `processed_events`: `pick-face-replenishment-inventory`, `-slotting`, `-layout` (not Kafka group ids) | `internal/application/usecases/intake.go` |
 
+## Helm chart
+
+`charts/pick-face-replenishment` deploys what [ADR 0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime)
+requires: real Postgres and real Kafka, with the three consumers always on. Every chart value maps 1:1 to a variable
+above; the `*_MODE` variables are never rendered (and cannot be injected through `extraEnv`). `tests/render_test.sh`
+fails when `cmd/api` reads a variable the chart does not render.
+
+| Chart value | Env var | Required | Default |
+| --- | --- | --- | --- |
+| `database.url` (chart Secret) or `database.existingSecret` + `database.existingSecretKey` | `DATABASE_URL` | **yes** | none; the render fails naming `database.url or database.existingSecret` |
+| `database.migrationsExistingSecretKey` | `MIGRATIONS_DATABASE_URL` | no | `MIGRATIONS_DATABASE_URL`, an `optional` key of the same Secret |
+| `kafka.brokers` | `KAFKA_BROKERS` | **yes** | none; the render fails naming `kafka.brokers` |
+| `config.inventoryConsumerGroup` | `INVENTORY_CONSUMER_GROUP` | **yes** | `pick-face-replenishment-inventory` (clearing it fails the render) |
+| `config.slottingConsumerGroup` | `SLOTTING_CONSUMER_GROUP` | **yes** | `pick-face-replenishment-slotting` |
+| `config.layoutConsumerGroup` | `LAYOUT_CONSUMER_GROUP` | **yes** | `pick-face-replenishment-layout` |
+| `config.httpAddr`, `config.logLevel` | `HTTP_ADDR`, `LOG_LEVEL` | no | `:8080`, `info` |
+| `config.outboxRelayInterval`, `config.outboxMaxAttempts` | `OUTBOX_RELAY_INTERVAL`, `OUTBOX_MAX_ATTEMPTS` | no | not rendered (binary: `1s`), `20` |
+| `config.forwardZoneCodes`, `config.reserveZoneCodes` | `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES` | no | not rendered (binary: `FWD`, `RSV`) |
+| `config.shutdownDrainDelay` | `SHUTDOWN_DRAIN_DELAY` | no | not rendered (binary: `5s`) |
+
+The DSNs live in a Secret only; everything else is also mounted from the chart ConfigMap with `envFrom`. Probes:
+`startupProbe` and `livenessProbe` on `/healthz`, `readinessProbe` on `/readyz` (which checks Postgres and Kafka, so a
+broker outage takes the pod out of the Service by design; period 10 s, timeout 5 s, 3 failures). The pod runs as uid
+1000, non-root, with a read-only root filesystem and every capability dropped.
+`terminationGracePeriodSeconds` is 40: `SHUTDOWN_DRAIN_DELAY` (5 s) + 10 s HTTP drain + 10 s consumers + 10 s relay, and
+the chart refuses a value below 35. Gateway (`gatewayApi`), Ingress, HPA (`autoscaling.api`) and the three Kong plugins
+(`kongPlugins.cors`, `.prometheus`, `.opentelemetry`; no auth plugin) are off by default.
+
 ## Not configurable here
 
-There is no CORS, auth, TLS, tracing or metrics configuration: the service has none of those features
-([Observability](/docs/operations/observability)). The Helm chart and its values file that the CI workflow refers to
-are not in the repository on `develop` ([Runbook](/docs/operations/runbook#deployment-status)).
+There is no CORS, auth, TLS, tracing or metrics configuration in the service itself: it has none of those features
+([Observability](/docs/operations/observability)); CORS and gateway metrics are Kong plugins rendered by the chart.

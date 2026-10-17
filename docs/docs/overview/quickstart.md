@@ -165,8 +165,9 @@ pointing at the shared broker.
 - Use group ids of your own: two processes sharing a group split the partitions between them.
 - The relay publishes to `warehouse.pick-face-replenishment.events` and `.analytics`. The topics must exist: the
   service never creates them, and `/readyz` stays `503` until they do.
-- The service has no Dockerfile, Helm chart or `warehouse-infra` entry on `develop` yet, so it is not part of the kind
-  cluster ([Runbook](/docs/operations/runbook#deployment-status)).
+- The service has a `Dockerfile` and a Helm chart (`charts/pick-face-replenishment`, see
+  [Configuration](/docs/operations/configuration#helm-chart)) but no `warehouse-infra` entry on `develop` yet, so it is
+  not part of the kind cluster ([Runbook](/docs/operations/runbook#deployment-status)).
 
 ## Build this documentation
 

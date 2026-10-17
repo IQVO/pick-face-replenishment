@@ -98,9 +98,11 @@ spectral lint apis/openapi.yaml --ruleset .spectral.yaml --fail-severity=warn
 
 ## 5. Behaviour: add a godog scenario
 
-If the endpoint is user-facing behaviour, add a `.feature` file under a
-`features/` directory (none exists yet; `make bdd` runs `TestFeatures`)
-exercising it over real HTTP against the server, Given/When/Then, not mocked.
+If the endpoint is user-facing behaviour, add a `.feature` file under
+`features/` (steps live next to it in `features/features_*_test.go`; `make bdd`
+runs `TestFeatures`; never add a Go file at the repo root), Given/When/Then.
+Scenarios drive the use cases over the in-memory adapters; the HTTP surface is
+covered by `internal/adapters/inbound/http` tests.
 
 ## 6. Verify before opening the PR
 

@@ -30,8 +30,9 @@ signals; mutation testing exists because green tests can assert nothing.
    `MUTATION_FAST_PKGS` and to the `mutation-fast` loop in
    `.github/workflows/ci.yml`.
 4. **BDD / behaviour** (`make bdd`, godog `TestFeatures`): proves a use case
-   works end to end over the real HTTP surface. No `features/` directory exists
-   yet; it arrives with the HTTP adapter.
+   end to end over the in-memory adapters (66 scenarios in `features/*.feature`,
+   steps in `features/features_*_test.go`, package `features_test`). Never put a
+   Go file at the repo root: `TestNoGoFilesAtRepoRoot` fails.
 
 ## Mutation testing: thresholds fail on `<=`
 
