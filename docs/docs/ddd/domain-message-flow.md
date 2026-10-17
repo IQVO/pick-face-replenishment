@@ -8,8 +8,8 @@ sidebar_position: 15
 # Domain message flow
 
 The key business scenarios as numbered command, event and query flows, following ddd-crew
-[Domain Message Flow Modelling](https://github.com/ddd-crew/domain-message-flow-modelling). Only edges that exist in code
-are solid arrows; a note marks each planned step.
+[Domain Message Flow Modelling](https://github.com/ddd-crew/domain-message-flow-modelling). Edges that exist on `develop`
+are solid arrows; a dashed arrow marks a step whose producer or consumer is not built.
 
 ## 1. Keep the local copies current
 
@@ -26,7 +26,7 @@ sequenceDiagram
     PFR->>PFR: ApplyLocationRegistered upserts locations
     SO->>PFR: SlotPlanApproved (event) on warehouse.slotting-optimization.events
     PFR->>PFR: ApplyForwardAssignmentMap replaces the map if approved_at is newer
-    IS-->>PFR: BinStockLevelChanged (event, producer absent today)
+    IS->>PFR: BinStockLevelChanged (event) on warehouse.inventory.events
     PFR->>PFR: ApplyBinLevel upserts the level if version is newer, then evaluates the face
 ```
 
@@ -66,15 +66,21 @@ sequenceDiagram
     participant IS as inventory-storage
     participant K as warehouse.pick-face-replenishment.events
     PFR-->>WP: ReplenishmentRequested (event) - no consumer yet
-    WP-->>FE: WorkReleased with a replenishment object - planned
-    FE-->>IS: RelocateStock reason REPLENISHMENT source_ref request id - planned
-    IS->>PFR: StockRelocated (event, reason REPLENISHMENT) - reason not produced yet
+    WP-->>FE: WorkReleased with a replenishment object - not emitted yet
+    FE->>FE: create the REPLENISH task from WorkReleased.data.replenishment, announce it on TaskAvailable
+    FE->>IS: TaskCompleted (event) with request_ref on warehouse.fulfillment.events
+    IS->>IS: ApplyReplenishTask relocates the stock with reason REPLENISHMENT, source_ref = request_ref
+    IS->>PFR: StockRelocated (event, reason REPLENISHMENT) on warehouse.inventory.events
+    IS->>PFR: BinStockLevelChanged (event, reason REPLENISHMENT) for the source bin, then the destination bin
     PFR->>PFR: ApplyRelocation completes the matching open request
     PFR->>K: ReplenishmentCompleted (event, via the outbox relay)
 ```
 
-Source: ADR 0001 context map, `internal/application/usecases/apply_relocation.go`. Dashed arrows are planned or absent
-today.
+Source: ADR 0001 context map, `internal/application/usecases/apply_relocation.go`; fulfillment-execution ADR 0050 and
+`apis/asyncapi.yaml` (`TaskAvailable`, `TaskCompleted.request_ref`); inventory-storage ADR 0040 and 0041 and
+`apis/asyncapi.yaml`, all on `origin/develop`. The two dashed arrows are the steps that do not exist today:
+wes-work-planning consumes nothing from this topic and emits no `replenishment` object, so no request starts this flow
+on `develop`.
 
 ## 4. A new slot plan changes the forward map
 
