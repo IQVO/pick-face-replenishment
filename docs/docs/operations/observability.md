@@ -113,7 +113,7 @@ logs rather than PromQL:
 | Consumer stopped | log `consumer stopped` or `outbox relay stopped` | the loop ended and is not restarted |
 | Server errors | log lines `request failed` and `handler panicked` | every 5xx is logged once |
 | Boot loops | repeated `service exited with error` / `retrying` | database unreachable or a bad migration |
-| Open-request age | `SELECT min(requested_at) FROM replenishment_requests WHERE state = 'Requested'` | requests that never complete (the execution chain is not wired, see [Integration](/docs/ecosystem/integration)) |
+| Open-request age | `SELECT min(requested_at) FROM replenishment_requests WHERE state = 'Requested'` | requests that never complete (wes-work-planning does not yet release `REPLENISH` work, see [Integration](/docs/ecosystem/integration)) |
 
 Adding real instruments (request duration, outbox backlog gauge, consumer outcome counters) would be a code change; this
 page documents the service as it is.
