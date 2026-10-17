@@ -38,8 +38,10 @@ Both topics carry the same `type` and the same CloudEvents `id` per occurrence, 
 payload change would be a new `.v2` type and dataschema, never a mutation of v1. Golden files pin the exact bytes
 (`internal/adapters/outbound/events/testdata/`).
 
-Consumers of the published events: none in the fleet today (`ReplenishmentRequested` is meant for wes-work-planning, a
-planned edge; the analytics topic is read by no repository) - see [Integration](/docs/ecosystem/integration).
+Consumers of the published events: wes-work-planning reads `ReplenishmentRequested` and `ReplenishmentCancelled` from
+`warehouse.pick-face-replenishment.events` when `REPLENISHMENT_MODE=kafka` (its ADR 0042; it ignores
+`ReplenishmentCompleted`, and the default `permissive` consumes nothing). Nothing is deployed, so none runs today; the
+analytics topic is read by no repository - see [Integration](/docs/ecosystem/integration).
 
 ## Consumed
 

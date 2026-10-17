@@ -34,7 +34,7 @@ Copied from the fleet table in warehouse-docs (`origin/main`), not from memory:
 | `inventory-storage` | Core | `wms` | upstream: `BinStockLevelChanged`, `StockRelocated` (reason `REPLENISHMENT` included) |
 | `slotting-optimization` | Supporting | `wms` | upstream: `SlotPlanApproved` |
 | `facility-layout` | Generic | `wms` | upstream: zones and location slots |
-| `wes-work-planning` | Core | `wes` | planned downstream: `REPLENISH` work from `ReplenishmentRequested` (not built) |
+| `wes-work-planning` | Core | `wes` | downstream, built and opt-in: plans one `REPLENISH` work unit per `ReplenishmentRequested` (its ADR 0042; consumer starts only with `REPLENISHMENT_MODE=kafka`) and releases it with a `replenishment` object |
 | `fulfillment-execution` | Core | `wes` | downstream, built: runs the `REPLENISH` task from `WorkReleased.data.replenishment` (its ADR 0050) |
 | `warehouse-ops-agent` | Supporting | `wes` | planned REST reader |
 

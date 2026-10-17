@@ -41,8 +41,8 @@ The warehouse-docs fleet table agrees ([Subdomain classification](/docs/ddd/subd
 
 **Business differentiation is moderate-low (y = 0.36).** Keeping forward faces stocked prevents empty faces and short
 picks, which matters, and the rules differ per retailer, so it is not Generic. But min/max is a well-understood rule behind a
-replaceable policy object, and nothing in the fleet's customer promise depends on it today: no request
-is executed on the floor yet ([Integration](/docs/ecosystem/integration)).
+replaceable policy object, and nothing in the fleet's customer promise depends on it today: the chain that executes a
+request on the floor is built on `develop` but not live ([Integration](/docs/ecosystem/integration)).
 
 **Model complexity is low to moderate (x = 0.34).** Evidence from the code:
 

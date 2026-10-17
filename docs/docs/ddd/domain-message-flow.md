@@ -9,7 +9,8 @@ sidebar_position: 15
 
 The key business scenarios as numbered command, event and query flows, following ddd-crew
 [Domain Message Flow Modelling](https://github.com/ddd-crew/domain-message-flow-modelling). Edges that exist on `develop`
-are solid arrows; a dashed arrow marks a step whose producer or consumer is not built.
+are solid arrows; a dashed arrow marks a step whose producer or consumer is not built. Built does not mean deployed:
+nothing runs in `warehouse-infra` for this service.
 
 ## 1. Keep the local copies current
 
@@ -64,9 +65,12 @@ sequenceDiagram
     participant WP as wes-work-planning
     participant FE as fulfillment-execution
     participant IS as inventory-storage
+    participant PPM as process-path-management
     participant K as warehouse.pick-face-replenishment.events
-    PFR-->>WP: ReplenishmentRequested (event) - no consumer yet
-    WP-->>FE: WorkReleased with a replenishment object - not emitted yet
+    PPM->>WP: ProcessPathCreated REPLENISH (event, catalogue replay) - seeding it is an operator step
+    PFR->>WP: ReplenishmentRequested (event), consumed only with REPLENISHMENT_MODE=kafka
+    WP->>WP: plan one REPLENISH work unit per request id (ReplenishmentCancelled withdraws it only while Pending)
+    WP->>FE: WorkReleased with a replenishment object on warehouse.work-planning.events
     FE->>FE: create the REPLENISH task from WorkReleased.data.replenishment, announce it on TaskAvailable
     FE->>IS: TaskCompleted (event) with request_ref on warehouse.fulfillment.events
     IS->>IS: ApplyReplenishTask relocates the stock with reason REPLENISHMENT, source_ref = request_ref
@@ -76,11 +80,13 @@ sequenceDiagram
     PFR->>K: ReplenishmentCompleted (event, via the outbox relay)
 ```
 
-Source: ADR 0001 context map, `internal/application/usecases/apply_relocation.go`; fulfillment-execution ADR 0050 and
-`apis/asyncapi.yaml` (`TaskAvailable`, `TaskCompleted.request_ref`); inventory-storage ADR 0040 and 0041 and
-`apis/asyncapi.yaml`, all on `origin/develop`. The two dashed arrows are the steps that do not exist today:
-wes-work-planning consumes nothing from this topic and emits no `replenishment` object, so no request starts this flow
-on `develop`.
+Source: ADR 0001 context map, `internal/application/usecases/apply_relocation.go`; wes-work-planning ADR 0042 and
+`internal/adapters/inbound/kafka/replenishment_consumer.go`; process-path-management ADR 0036 and `catalogue/paths.json`;
+fulfillment-execution ADR 0050 and `apis/asyncapi.yaml` (`TaskAvailable`, `TaskCompleted.request_ref`);
+inventory-storage ADR 0040 and 0041 and `apis/asyncapi.yaml`, all on `origin/develop`. Every step exists on `develop`, but
+the flow is not live: nothing is deployed, `warehouse-infra` sets no `REPLENISHMENT_MODE` (so wes-work-planning's
+consumer, off by default, plans nothing), and until the `REPLENISH` path is seeded in a cluster wes-work-planning
+dead-letters the requests.
 
 ## 4. A new slot plan changes the forward map
 
