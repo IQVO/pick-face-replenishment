@@ -99,7 +99,9 @@ those four, each on its own (the `mutation-fast` CI job, blocking on every PR). 
 | `TestDeadLetterCallsGuardCancellation` | every function that sends to a dead-letter topic checks for a cancelled context (or carries a `//dlq:deterministic` reason), so a message that failed only because of shutdown is never dead-lettered |
 | `TestNoAuthMiddlewareReintroduced` | no auth middleware (fleet decision 2026-09-11) |
 | `TestNoGoFilesAtRepoRoot`, `TestNoGoFilesAtRepoRootSensorBites` | the repository root holds no `.go` file (the godog runner and steps live in `features/`) |
-| `TestMCPAdapterDependencyRule`, `TestMCPOptionalToolInputsCarryOmitempty` | rules for an MCP adapter this service does not have |
+| `TestMCPAdapterDependencyRule`, `TestMCPOptionalToolInputsCarryOmitempty` | the rules of the MCP adapter (`internal/adapters/inbound/mcp`): dependency direction, optional tool inputs carry `omitempty` |
+| `TestMCPReadOnly...` (`mcp_readonly_fitness_test.go`) | the MCP adapter and `cmd/mcp` are read-only: every use case is classified read or write, and they may not import the outbox, event sink, Kafka, memory doubles or the ports package, nor build an outbox, unit of work or idempotency repository. `governance_test.go` also fails on any write-verb tool name |
+| `TestHexagonalArchitecture` analytics subtests | `internal/analytics/**` depends on nothing internal except itself; the OLTP domain and application never import the analytics store |
 | `TestPostgresIntegrationTestsUseTestcontainers`, `TestKafkaIntegrationTestsUseTestcontainers` | integration tests boot their own containers |
 | `Test...SensorBites` / `...SensorFailsOnBadFixtures` | each sensor is proven to fail on a bad fixture |
 

@@ -36,8 +36,12 @@ dependencies point inward, and `internal/architecture` fails CI when they do not
 | Binary | Role | Ports |
 | --- | --- | --- |
 | `cmd/api` | Composition root. Serves REST, runs the outbox relay and the three Kafka consumers, all always on, on real Postgres and Kafka (ADR 0006). | HTTP `:8080` (`HTTP_ADDR`) |
+| `cmd/mcp` | Read-only MCP server over Streamable HTTP (ADR 0007): `list_policies`, `get_policy`, `list_pick_faces`, `list_replenishments`, `get_replenishment`, over the same read use cases as REST. Builds no outbox, unit of work or event sink; never dials Kafka. | `:8090` (`MCP_ADDR`), `/mcp`, `/healthz` |
+| `cmd/pfr-projector` | The only writer of the analytical database (ADR 0008): consumes `warehouse.pick-face-replenishment.analytics` and folds it into fact tables; dead-letters deterministic poison; exits non-zero if its consumer loop stops. | admin `:8091` (`ADMIN_ADDR`): `/healthz`, `/readyz` |
+| `cmd/pfr-reports` | Read-only reports over the analytical database through a read-only pool: `GET /reports/replenishment-funnel`, `GET /reports/freshness`. | HTTP `:8092` (`HTTP_ADDR`) |
 
-There is no `cmd/mcp`, no reports binary and no `web/`. The three background loops are goroutines of `cmd/api`, not
+`web/` is the operator Module Federation remote `replenishment_mfe` (policies, pick faces, replenishments); it calls only
+`/api/pick-face-replenishment`. The three background loops are goroutines of `cmd/api`, not
 separate deployables, so one process owns the HTTP server, the relay and the consumers and shuts them down in order
 ([Runbook](/docs/operations/runbook#readiness-and-shutdown)).
 
