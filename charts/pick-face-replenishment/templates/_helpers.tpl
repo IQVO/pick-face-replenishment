@@ -148,3 +148,46 @@ Empty string (annotation omitted) when none are enabled.
 {{- end -}}
 {{- join "," $names -}}
 {{- end -}}
+
+{{/*
+Fully qualified names of the optional components. Each is its own workload
+with its own app.kubernetes.io/component label; a Service never selects more
+than one of them (tests/test_service_selectors.py).
+*/}}
+{{- define "pick-face-replenishment.mcpFullname" -}}
+{{- include "pick-face-replenishment.fullname" . }}-mcp
+{{- end }}
+
+{{- define "pick-face-replenishment.analyticsProjectorFullname" -}}
+{{- include "pick-face-replenishment.fullname" . }}-projector
+{{- end }}
+
+{{- define "pick-face-replenishment.analyticsReportsFullname" -}}
+{{- include "pick-face-replenishment.fullname" . }}-reports
+{{- end }}
+
+{{/*
+Name of the Secret holding ANALYTICS_DATABASE_URL: the operator's own
+(analytics.existingSecret) or the one this chart creates from analytics.url
+(analytics-secret.yaml).
+*/}}
+{{- define "pick-face-replenishment.analyticsSecretName" -}}
+{{- if .Values.analytics.existingSecret -}}
+{{- .Values.analytics.existingSecret -}}
+{{- else -}}
+{{- include "pick-face-replenishment.fullname" . }}-analytics
+{{- end -}}
+{{- end }}
+
+{{/*
+Analytics guard (ADR 0008): the projector and reports binaries exit at boot
+without ANALYTICS_DATABASE_URL, and the projector without KAFKA_BROKERS (always
+required by this chart) and ANALYTICS_CONSUMER_GROUP (no default). Refuse them
+at render time, only while analytics is on, naming the value.
+*/}}
+{{- define "pick-face-replenishment.requireAnalyticsConfig" -}}
+{{- if not (or .Values.analytics.url .Values.analytics.existingSecret) -}}
+{{- fail "analytics.enabled is true but neither analytics.url nor analytics.existingSecret is set: the projector and reports binaries exit at boot without ANALYTICS_DATABASE_URL (ADR 0008)." -}}
+{{- end -}}
+{{- $_ := required "analytics.enabled is true but analytics.consumerGroup is empty: the projector exits at boot without ANALYTICS_CONSUMER_GROUP, a stable Kafka group id (ADR 0008)." .Values.analytics.consumerGroup -}}
+{{- end -}}

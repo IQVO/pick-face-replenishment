@@ -54,6 +54,9 @@ config:
     # an Idempotency-Key header and the preflight must allow it or the
     # browser blocks the call before it reaches Kong.
     - Idempotency-Key
+    # PUT /policies/{siteId}/{sku} replaces a policy with If-Match: <version>
+    # (the web remote's policy form); without it the browser blocks the call.
+    - If-Match
   exposed_headers:
     - Content-Length
   credentials: false

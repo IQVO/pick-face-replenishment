@@ -33,3 +33,21 @@ kongPlugins:
 autoscaling:
   api:
     enabled: true
+
+# Every optional COMPONENT at once (api + mcp + projector + reports +
+# frontend), so a template that renders alone but collides with another is
+# caught by `helm lint`.
+mcp:
+  enabled: true
+  route:
+    enabled: true
+    parentRefs:
+      - name: warehouse-gateway
+        namespace: kong
+        sectionName: http
+analytics:
+  enabled: true
+  existingSecret: "pick-face-replenishment-analytics-db"
+  consumerGroup: "pick-face-replenishment-analytics"
+frontend:
+  enabled: true
