@@ -85,3 +85,22 @@ CloudEvent is logged and skipped, never retried forever.
 - `BinStockLevelChanged` is pinned consumer-first: inventory-storage does not
   publish it yet (producer change P1), and `REPLENISHMENT` as a `StockRelocated`
   reason arrives with producer change P4.
+
+## Amendment 1: the analytics stream has a reader (ADR 0008)
+
+The published catalogue above is unchanged. The analytics stream is consumed by
+this service's own `cmd/pfr-projector` ([ADR 0008](0008-analytics-read-side.md)),
+so the consumed catalogue gains these lines (the same four types as the
+published table, read from the analytics stream; `dataschema`
+`urn:warehouse:pick-face-replenishment:analytics:<EventName>:v1`):
+
+| type | topic | consumer group env |
+|---|---|---|
+| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentRequested` | `warehouse.pick-face-replenishment.analytics` | `ANALYTICS_CONSUMER_GROUP` |
+| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCompleted` | `warehouse.pick-face-replenishment.analytics` | `ANALYTICS_CONSUMER_GROUP` |
+| `com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCancelled` | `warehouse.pick-face-replenishment.analytics` | `ANALYTICS_CONSUMER_GROUP` |
+| `com.warehouse.wms.pick-face-replenishment.policy.ReplenishmentPolicyDeclared` | `warehouse.pick-face-replenishment.analytics` | `ANALYTICS_CONSUMER_GROUP` |
+
+Its dead-letter topic is `warehouse.pick-face-replenishment.analytics.dlq`. The
+analytics stream is not an integration contract: no other context consumes it.
+
