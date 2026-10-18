@@ -143,7 +143,7 @@ func (c *AnalyticsConsumer) HandleMessage(ctx context.Context, msg kafkago.Messa
 	}
 	kind, known := analyticsKinds[evt.Type()]
 	if !known {
-		defaultLogger(c.Logger).DebugContext(ctx, "analytics: ignoring event of another type", "type", evt.Type(), "event_id", evt.ID())
+		defaultLogger(c.Logger).DebugContext(ctx, "analytics: ignoring event of another type", "type", logSafe(evt.Type()), "event_id", logSafe(evt.ID()))
 		return nil
 	}
 	pe, err := toReportEvent(kind, evt)
