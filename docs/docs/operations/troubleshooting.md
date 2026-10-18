@@ -21,7 +21,7 @@ Symptom, cause, check and fix, built from the failure modes visible in the code.
 | Exits with `KAFKA_BROKERS is required: this context runs on real Kafka` | no brokers configured | `KAFKA_BROKERS` | set it |
 | Exits with `DATABASE_URL is required: this context runs on real Postgres` | no database configured: there is no in-memory mode | `DATABASE_URL` | set it |
 | Pod never becomes ready | the listener starts only after the migrations and the first ping succeeded, and `/readyz` also needs Postgres and Kafka reachable | the log: no `http server listening` line means boot is still retrying; otherwise the `/readyz` body names the failing dependency | see the first row, or restore the database or broker |
-| `/readyz` answers 503 | shutdown began (SIGTERM or SIGINT), or Postgres or Kafka is unreachable | `shutdown: readiness flipped...` in the log, or the dependency named in the response | none while the pod is terminating; otherwise restore the dependency |
+| `/readyz` answers 503 | shutdown began (SIGTERM or SIGINT), or Postgres or the Kafka broker is unreachable (a missing topic never causes it) | `shutdown: readiness flipped...` in the log, or the dependency named in the response | none while the pod is terminating; otherwise restore the dependency |
 
 ## Events not flowing out
 
@@ -36,7 +36,7 @@ Symptom, cause, check and fix, built from the failure modes visible in the code.
 
 | Symptom | Cause | Check | Fix |
 | --- | --- | --- | --- |
-| Local copies stay empty | the upstream context has not published yet, or its topic does not exist (infrastructure owns the topics; the service never creates them) | the `kafka topics` boot line, `consumer running` per consumer, and the consumer group's lag on the broker | create the topic or wait for the producer; a new group replays from the first offset |
+| Local copies stay empty | the upstream context has not published yet, so its topic does not exist (the broker creates a topic on its producer's first write; the service never creates a consumed topic and `/readyz` does not wait for it) | the `kafka topics` boot line, `consumer running` per consumer, ERROR `kafka reader error; retrying` naming the topic, and the consumer group's lag on the broker | wait for the producer to publish; a new group replays from the first offset |
 | Consumer lag grows on one partition | the same message keeps failing with a transient error and blocks the partition until the 5th attempt | ERROR `handling failed; retrying the same message` with `partition`, `offset`, `attempt` | fix the database or dependency; after 5 attempts the message goes to the `.dlq` topic and the loop continues |
 | Consumer lag grows and the log shows `dead-letter publish failed` or `offset commit failed` | the broker rejects the DLQ write or the commit; both retry forever and never skip | those ERROR lines | restore the broker, check ACLs and topic auto-creation for `<topic>.dlq` |
 | Consumer not running | the goroutine ended | log `consumer stopped` with `error` | restart the process; there is no supervisor inside it |

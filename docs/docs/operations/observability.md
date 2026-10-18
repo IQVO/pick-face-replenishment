@@ -43,7 +43,7 @@ selects the threshold. There is **no access log**: successful requests are not l
 
 | Level | `msg` | Attributes | Meaning |
 | --- | --- | --- | --- |
-| INFO | `kafka topics (owned by infrastructure; the service never creates them)` | topics consumed and produced | logged at boot |
+| INFO | `kafka topics (informational; the broker auto-creates them on first write, the service never creates them through an admin API)` | topics consumed and produced | logged at boot; topics play no part in `/readyz` |
 | INFO | `postgres adapters configured` | | migrations ran and the pool pinged |
 | WARN | `retrying` | `op` (`run migrations`, `ping postgres`), `attempt`, `in`, `err` | boot retry, backoff 1 s doubling |
 | INFO | `succeeded after retry` | `op`, `attempt` | a retried boot step worked |
@@ -70,6 +70,7 @@ selects the threshold. There is **no access log**: successful requests are not l
 | INFO | `event processed` | `type`, `event_id`, `subject`, `outcome` (`applied`, `duplicate`, `stale`, `ignored`) | one message handled |
 | WARN | `skipping a message that is not a valid CloudEvent` | `consumer`, `topic`, `error` | committed past, never retried |
 | WARN | `dead-lettering an event that can never be applied` | `consumer`, `type`, `event_id`, `error` | poison payload |
+| ERROR | `kafka reader error; retrying` | `consumer`, `topic`, `detail` | kafka-go is retrying a group join: the broker is unreachable or the consumed topic does not exist yet (its producer has not written). Not a readiness failure; the consumer recovers by itself |
 | ERROR | `<consumer> handling failed; retrying the same message` | `error`, `partition`, `offset`, `attempt`, `max_attempts`, `retry_in` | transient failure, logged on every attempt |
 | ERROR | `<consumer> handling failed after the maximum attempts; dead-lettering the message` | `error`, `partition`, `offset`, `attempts` | moved to the `.dlq` topic |
 | ERROR | `<consumer> message can never be applied; dead-lettering it without retry` | `error`, `partition`, `offset` | poison, immediate |
@@ -91,9 +92,9 @@ Domain rejections (4xx) are not logged at all; they are visible only in the resp
 | Endpoint | Healthy | Unhealthy |
 | --- | --- | --- |
 | `GET /healthz` | `200 {"status":"ok"}` | the process is gone |
-| `GET /readyz` | `200 {"status":"ready"}` | `503 {"status":"not_ready"}` after shutdown began |
+| `GET /readyz` | `200 {"status":"ready"}` | `503 {"status":"not_ready"}` after shutdown began; `503` `dependency-unavailable` while Postgres or the Kafka broker is unreachable (topics are not checked) |
 
-Neither checks Postgres or Kafka ([Runbook](/docs/operations/runbook#readiness-and-shutdown)).
+`/healthz` checks neither Postgres nor Kafka; `/readyz` checks Postgres and that a Kafka broker answers, never topics ([Runbook](/docs/operations/runbook#readiness-and-shutdown)).
 
 ## Suggested alerts
 
