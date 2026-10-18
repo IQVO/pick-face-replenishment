@@ -1,0 +1,464 @@
+[
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read the replenishment policy of one site and SKU: min_qty, max_qty, multiple, version and declared_at. Read-only; fails with policy-not-found when no policy is declared and invalid-site-id or invalid-sku for a blank id.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "site_id": {
+          "description": "the site of the policy, e.g. SITE-1",
+          "type": "string"
+        },
+        "sku": {
+          "description": "the SKU of the policy, e.g. SKU-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "site_id",
+        "sku"
+      ],
+      "type": "object"
+    },
+    "name": "get_policy",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "declared_at": {
+          "type": "string"
+        },
+        "max_qty": {
+          "type": "integer"
+        },
+        "min_qty": {
+          "type": "integer"
+        },
+        "multiple": {
+          "type": "integer"
+        },
+        "site_id": {
+          "type": "string"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "site_id",
+        "sku",
+        "min_qty",
+        "max_qty",
+        "multiple",
+        "version",
+        "declared_at"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read one replenishment request by id: the forward bin, the reserve source bin, the quantity, the moved quantity once completed, priority, state (Requested, Completed or Cancelled), the policy min and max it was raised under, requested_at, completed_at or cancelled_at with cancel_reason, and version. Read-only; fails with replenishment-not-found for an unknown id and invalid-request-id for a malformed one.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "description": "the replenishment request id, starting with repl-, e.g. repl-1b4e28ba",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_replenishment",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cancel_reason": {
+          "type": "string"
+        },
+        "cancelled_at": {
+          "type": "string"
+        },
+        "completed_at": {
+          "type": "string"
+        },
+        "forward_bin": {
+          "type": "string"
+        },
+        "moved_quantity": {
+          "type": "integer"
+        },
+        "policy_max": {
+          "type": "integer"
+        },
+        "policy_min": {
+          "type": "integer"
+        },
+        "priority": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "integer"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "requested_at": {
+          "type": "string"
+        },
+        "site_id": {
+          "type": "string"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "source_bin": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "request_id",
+        "site_id",
+        "sku",
+        "forward_bin",
+        "source_bin",
+        "quantity",
+        "priority",
+        "state",
+        "policy_min",
+        "policy_max",
+        "requested_at",
+        "version"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List the forward pick faces of a site ordered by forward bin, a page at a time (default 100, max 500), each with its SKU, on_hand, reserved and available quantity, the policy min_qty and max_qty (omitted without a policy), the open_request_id (omitted without an open request) and a status: BELOW_MIN (the projected level is at or below the minimum), OK, NO_SOURCE (below minimum but no reserve bin can supply it) or NO_POLICY. Optionally only one status. Levels are the event-fed local copy. Read-only; fails with invalid-site-id for a blank site, invalid-status for an unknown status, invalid-limit and invalid-cursor.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "description": "the opaque next_cursor returned by the previous page; omitted means the first page",
+          "type": "string"
+        },
+        "limit": {
+          "description": "page size, 1..500; omitted or 0 means 100",
+          "type": "integer"
+        },
+        "site_id": {
+          "description": "the site whose forward pick faces to list (required), e.g. SITE-1",
+          "type": "string"
+        },
+        "status": {
+          "description": "keep only pick faces in this status: BELOW_MIN, OK, NO_SOURCE or NO_POLICY; omitted means every status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "name": "list_pick_faces",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "available": {
+                "type": "integer"
+              },
+              "forward_bin": {
+                "type": "string"
+              },
+              "max_qty": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "min_qty": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "on_hand": {
+                "type": "integer"
+              },
+              "open_request_id": {
+                "type": "string"
+              },
+              "reserved": {
+                "type": "integer"
+              },
+              "site_id": {
+                "type": "string"
+              },
+              "sku": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "site_id",
+              "forward_bin",
+              "sku",
+              "on_hand",
+              "reserved",
+              "available",
+              "status"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "next_cursor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List the declared min/max replenishment policies ordered by site then SKU, a page at a time (default 100, max 500), optionally only those of one site and/or one SKU. Each policy has site_id, sku, min_qty, max_qty, multiple (replenish in multiples of this), version and declared_at. Pass the returned next_cursor to get the next page; it is absent on the last page. Read-only; a bad limit fails with invalid-limit and a bad cursor with invalid-cursor.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "description": "the opaque next_cursor returned by the previous page; omitted means the first page",
+          "type": "string"
+        },
+        "limit": {
+          "description": "page size, 1..500; omitted or 0 means 100",
+          "type": "integer"
+        },
+        "site_id": {
+          "description": "keep only policies of this site; omitted means every site",
+          "type": "string"
+        },
+        "sku": {
+          "description": "keep only the policy of this SKU; omitted means every SKU",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_policies",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "declared_at": {
+                "type": "string"
+              },
+              "max_qty": {
+                "type": "integer"
+              },
+              "min_qty": {
+                "type": "integer"
+              },
+              "multiple": {
+                "type": "integer"
+              },
+              "site_id": {
+                "type": "string"
+              },
+              "sku": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "site_id",
+              "sku",
+              "min_qty",
+              "max_qty",
+              "multiple",
+              "version",
+              "declared_at"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "next_cursor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List replenishment requests newest first, a page at a time (default 100, max 500), optionally only those of one site, one SKU and/or one state (Requested, Completed or Cancelled). Each has request_id, site_id, sku, forward_bin, source_bin, quantity, priority, state, policy_min, policy_max, requested_at, the completion or cancellation instant and reason when they happened, and version. Pass the returned next_cursor for the next page. Read-only; fails with invalid-state, invalid-limit or invalid-cursor.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "description": "the opaque next_cursor returned by the previous page; omitted means the first page",
+          "type": "string"
+        },
+        "limit": {
+          "description": "page size, 1..500; omitted or 0 means 100",
+          "type": "integer"
+        },
+        "site_id": {
+          "description": "keep only requests of this site; omitted means every site",
+          "type": "string"
+        },
+        "sku": {
+          "description": "keep only requests of this SKU; omitted means every SKU",
+          "type": "string"
+        },
+        "state": {
+          "description": "keep only requests in this state: Requested, Completed or Cancelled; omitted means every state",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_replenishments",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "cancel_reason": {
+                "type": "string"
+              },
+              "cancelled_at": {
+                "type": "string"
+              },
+              "completed_at": {
+                "type": "string"
+              },
+              "forward_bin": {
+                "type": "string"
+              },
+              "moved_quantity": {
+                "type": "integer"
+              },
+              "policy_max": {
+                "type": "integer"
+              },
+              "policy_min": {
+                "type": "integer"
+              },
+              "priority": {
+                "type": "string"
+              },
+              "quantity": {
+                "type": "integer"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "requested_at": {
+                "type": "string"
+              },
+              "site_id": {
+                "type": "string"
+              },
+              "sku": {
+                "type": "string"
+              },
+              "source_bin": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "request_id",
+              "site_id",
+              "sku",
+              "forward_bin",
+              "source_bin",
+              "quantity",
+              "priority",
+              "state",
+              "policy_min",
+              "policy_max",
+              "requested_at",
+              "version"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "next_cursor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    }
+  }
+]

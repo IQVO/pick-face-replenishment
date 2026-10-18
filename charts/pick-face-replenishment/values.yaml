@@ -218,3 +218,142 @@ terminationGracePeriodSeconds: 40
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# --- MCP server (docs/adr/0007) ---
+# cmd/mcp: a READ-ONLY Model Context Protocol server over Streamable HTTP
+# (list_policies, get_policy, list_pick_faces, list_replenishments,
+# get_replenishment) on the same Postgres as the api. A separate workload
+# (component=mcp, Service <fullname>-mcp:8090); it never writes, never dials
+# Kafka and has no auth (fleet rule: the ClusterIP boundary is the access
+# control). DISABLED by default: the default render is unchanged.
+mcp:
+  enabled: false
+  replicaCount: 1
+  httpAddr: ":8090"
+  service:
+    type: ClusterIP
+    port: 8090
+    targetPort: 8090
+  # Kong exposure of the MCP server (mcp-route.yaml): host path
+  # /api/mcp/<context> rewritten to /mcp. Off by default; warehouse-infra
+  # turns it on with the real parentRefs and path.
+  route:
+    enabled: false
+    path: "/api/mcp/pick-face-replenishment"
+    parentRefs:
+      - name: ""
+        namespace: ""
+        sectionName: "http"
+  extraEnv: []
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# --- Analytics read side (docs/adr/0008) ---
+# The replenishment-funnel data product: the projector (cmd/pfr-projector,
+# the ONLY writer of the analytical database, consuming the analytics topic
+# warehouse.pick-face-replenishment.analytics) and the read-only reports
+# binary (cmd/pfr-reports, GET /reports/replenishment-funnel and
+# /reports/freshness). DISABLED by default: the default render is unchanged.
+#
+# Enabling it renders the projector Deployment (component
+# analytics-projector, /healthz + /readyz on :8091, no Service) and the
+# reports Deployment + Service <fullname>-reports:80 (component
+# analytics-reports, :8092), plus a Secret with ANALYTICS_DATABASE_URL when
+# analytics.url is set. The chart refuses to render analytics without a DSN
+# source (analytics.url or analytics.existingSecret) or without a consumer
+# group: the binaries exit at boot otherwise (crash-loop). Kafka brokers are
+# already mandatory for every render of this chart.
+#
+# Deliberately NOT HPA-scalable: the projector keeps per-process
+# consumer/offset state and the reports Service has no session affinity --
+# replica counts are fixed values.
+analytics:
+  enabled: false
+  # The analytical database is SEPARATE from database.* (OLTP): the
+  # projector has no credentials on OLTP data and the reports pool is
+  # read-only. Direct DSN (no PgBouncer): the projector runs the embedded
+  # analytical migrations through it.
+  url: ""
+  existingSecret: ""
+  existingSecretKey: "ANALYTICS_DATABASE_URL"
+  # ANALYTICS_CONSUMER_GROUP: the projector's STABLE consumer group (no
+  # default in the binary): a rescheduled pod resumes from its committed
+  # offsets, and a brand-new group replays from the earliest retained offset
+  # (the backfill).
+  consumerGroup: "pick-face-replenishment-analytics"
+  projector:
+    replicaCount: 1
+    # ADMIN_ADDR (/healthz and /readyz) and its container port.
+    adminAddr: ":8091"
+    adminPort: 8091
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    extraEnv: []
+  reports:
+    replicaCount: 1
+    httpAddr: ":8092"
+    service:
+      type: ClusterIP
+      port: 80
+      targetPort: 8092
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    extraEnv: []
+
+# --- frontend (Module Federation REMOTE `replenishment_mfe`) ---
+# The operator SPA remote, built from web/ and served by its own
+# nginx-unprivileged pod (component=frontend). In the kind cluster it is
+# reached through warehouse-infra's Nginx web gateway at
+# http://localhost/mfes/pick-face-replenishment/ -- never through Kong, which
+# serves APIs only. The remote reads its API origin at runtime from the
+# console's /config.json (`${apiOrigin}/api/pick-face-replenishment`), so
+# nothing about it is configured here. No ingress/httproute for it and the
+# Service stays ClusterIP: frontend path routing is owned by the Nginx web
+# gateway.
+#
+# Disabled by default so existing releases are unaffected; warehouse-infra
+# sets frontend.enabled=true and supplies the locally built image tag (image
+# built from web/; side-loaded into kind, so keep pullPolicy IfNotPresent).
+frontend:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: warehouse/pick-face-replenishment-frontend
+    pullPolicy: IfNotPresent
+    # Empty = the chart's appVersion. warehouse-infra overrides it.
+    tag: ""
+  service:
+    port: 80
+    targetPort: 8080
+  # nginx-unprivileged runs as uid/gid 101.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    fsGroup: 101
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi

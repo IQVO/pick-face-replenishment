@@ -1,0 +1,135 @@
+package http
+
+import (
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/claudioed/pick-face-replenishment/internal/analytics/report"
+)
+
+// ReportsServer is the inbound HTTP adapter of cmd/pfr-reports: the read-only
+// replenishment funnel report of ADR 0008. It depends only on the
+// report.Reader port over the analytical database; it never touches the OLTP
+// use cases, and it writes nothing.
+type ReportsServer struct {
+	Reader report.Reader
+	// Now is the clock the default range ends at and the freshness lag is
+	// measured against (time.Now when nil).
+	Now func() time.Time
+}
+
+const dayLayout = "2006-01-02"
+
+// The wire shapes (snake_case like the other fleet reports); days are UTC
+// calendar dates and the report structs never leak onto the wire.
+type timingDTO struct {
+	Count      int      `json:"count"`
+	P50Seconds *float64 `json:"p50_seconds"`
+	P95Seconds *float64 `json:"p95_seconds"`
+}
+
+type funnelDayDTO struct {
+	Day               string    `json:"day"`
+	RequestsRaised    int       `json:"requests_raised"`
+	UnitsRequested    int64     `json:"units_requested"`
+	RequestsCompleted int       `json:"requests_completed"`
+	UnitsReplenished  int64     `json:"units_replenished"`
+	RequestsCancelled int       `json:"requests_cancelled"`
+	CompletionLatency timingDTO `json:"completion_latency"`
+	PoliciesDeclared  int       `json:"policies_declared"`
+}
+
+type funnelReportDTO struct {
+	From        time.Time      `json:"from"`
+	To          time.Time      `json:"to"`
+	SiteID      string         `json:"site_id,omitempty"`
+	Granularity string         `json:"granularity"`
+	Days        []funnelDayDTO `json:"days"`
+}
+
+// Problems of the reports binary.
+var (
+	invalidReportRange = problem{http.StatusBadRequest, "invalid-report-range",
+		"from and to must form a valid RFC 3339 range of at most 366 days", ""}
+	invalidReportGranularity = problem{http.StatusBadRequest, "invalid-report-granularity",
+		"granularity must be \"day\"", ""}
+	reportStoreError = problem{http.StatusInternalServerError, "report-store-error",
+		"The report could not be served", "the analytical database query failed"}
+)
+
+// NewReportsRouter builds the router of cmd/pfr-reports: /healthz,
+// GET /reports/replenishment-funnel and GET /reports/freshness. No auth
+// middleware (fleet rule), no CORS: the service is cluster-internal.
+func NewReportsRouter(s *ReportsServer) http.Handler {
+	r := chi.NewRouter()
+	r.Use(recoverPanic)
+	r.Get("/healthz", handleHealthz)
+	r.Get("/reports/replenishment-funnel", s.handleReplenishmentFunnel)
+	r.Get("/reports/freshness", s.handleFreshness)
+	return r
+}
+
+func (s *ReportsServer) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+func timingToDTO(t report.Timing) timingDTO {
+	return timingDTO{Count: t.Count, P50Seconds: t.P50, P95Seconds: t.P95}
+}
+
+// handleReplenishmentFunnel serves the per-day funnel over
+// ?from=&to=&siteId= and ?granularity=day (the only granularity; default day).
+func (s *ReportsServer) handleReplenishmentFunnel(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	rg, err := report.ParseRange(q.Get("from"), q.Get("to"), s.now())
+	if err != nil {
+		writeProblem(w, r, invalidReportRange, err.Error())
+		return
+	}
+	granularity, err := report.ParseGranularity(q.Get("granularity"))
+	if err != nil {
+		writeProblem(w, r, invalidReportGranularity, err.Error())
+		return
+	}
+	days, err := s.Reader.FunnelDays(r.Context(), report.FunnelQuery{Range: rg, SiteID: q.Get("siteId"), Granularity: granularity})
+	if err != nil {
+		writeReportStoreError(w, r, err)
+		return
+	}
+	out := funnelReportDTO{
+		From: rg.From, To: rg.To, SiteID: q.Get("siteId"),
+		Granularity: string(granularity), Days: make([]funnelDayDTO, 0, len(days)),
+	}
+	for _, d := range days {
+		out.Days = append(out.Days, funnelDayDTO{
+			Day: d.Day.UTC().Format(dayLayout), RequestsRaised: d.Requested, UnitsRequested: d.UnitsRequested,
+			RequestsCompleted: d.Completed, UnitsReplenished: d.UnitsReplenished, RequestsCancelled: d.Cancelled,
+			CompletionLatency: timingToDTO(d.CompletionLatency), PoliciesDeclared: d.PoliciesDeclared,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleFreshness serves how far the projection is behind (now - the newest
+// applied event time). Both fields are null until the first event is applied.
+func (s *ReportsServer) handleFreshness(w http.ResponseWriter, r *http.Request) {
+	asOf, err := s.Reader.LastEventAt(r.Context())
+	if err != nil {
+		writeReportStoreError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report.ComputeFreshness(asOf, s.now()))
+}
+
+// writeReportStoreError is the 500 for a failed analytical query. The cause is
+// logged, never echoed: it can carry SQL and connection details.
+func writeReportStoreError(w http.ResponseWriter, r *http.Request, err error) {
+	slog.ErrorContext(r.Context(), "report query failed", "error", err, "path", logSafe(r.URL.Path))
+	writeProblem(w, r, reportStoreError, reportStoreError.detail)
+}

@@ -12,12 +12,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
-# Build EVERY cmd/* binary (today only api: this context has no MCP server,
-# projector or reports binary) by looping over the cmd/ directories, so a new
-# composition root can never be merged with a Dockerfile that silently
-# forgets to build it (the first symptom would otherwise be a
-# CrashLoopBackOff on `exec: "/app/<binary>": no such file or directory`).
-# Each binary lands in /out/<dirname>.
+# Build EVERY cmd/* binary (today api, mcp, pfr-projector and pfr-reports) by
+# looping over the cmd/ directories, so a new composition root can never be
+# merged with a Dockerfile that silently forgets to build it (the first
+# symptom would otherwise be a CrashLoopBackOff on
+# `exec: "/app/<binary>": no such file or directory`). Each binary lands in
+# /out/<dirname>; the chart picks one with `command: ["/app/<dirname>"]`.
 # BuildKit cache mounts for the module and build caches speed up repeat
 # builds in CI without baking the cache into the image layers.
 RUN --mount=type=cache,target=/go/pkg/mod \

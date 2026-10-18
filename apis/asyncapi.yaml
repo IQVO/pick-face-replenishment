@@ -67,6 +67,8 @@ tags:
     description: Events raised by the ReplenishmentRequest aggregate.
   - name: policy
     description: Events raised by the ReplenishmentPolicy aggregate.
+  - name: analytics
+    description: This service's own analytics stream and read side (ADR 0008).
   - name: consumed
     description: Events produced by sibling contexts that this service consumes (ADR 0003).
 
@@ -95,22 +97,35 @@ channels:
 
   warehouse.pick-face-replenishment.analytics:
     description: |
-      This service's analytics topic, read only by its own analytics side. It
-      carries the three request events again (same `type`, same `id` per
-      occurrence, dataschema `...:analytics:<EventName>:v1`) and the
+      This service's own analytics stream (ADR 0008), written by the SAME
+      transactional outbox as the integration topic: every request event
+      appears here too, under the SAME CloudEvents id and `type`, with only the
+      `dataschema` stream segment different
+      (urn:warehouse:pick-face-replenishment:analytics:<EventName>:v1), plus the
       analytics-only `ReplenishmentPolicyDeclared` (key and subject
-      `<site_id>/<sku>`), declared below.
+      `<site_id>/<sku>`). It is NOT an integration contract: the only consumer
+      is this service's cmd/pfr-projector (fixed group from
+      `ANALYTICS_CONSUMER_GROUP`), which folds the events into the analytical
+      database; its deterministic poison goes to
+      warehouse.pick-face-replenishment.analytics.dlq. Other contexts keep
+      reading warehouse.pick-face-replenishment.events.
     subscribe:
       operationId: receiveReplenishmentAnalytics
-      summary: Receive the analytics-only policy event.
+      summary: Receive the analytics twin of every request event and the policy declaration.
       description: |
-        `ReplenishmentPolicyDeclared` is raised each time a policy is declared or
-        changed, with the new version. Removing a policy raises no event of its
-        own; its open requests are cancelled with reason `POLICY_REMOVED`.
+        Request payloads are byte-for-byte the integration payloads (ADR 0008
+        section 2); only the dataschema names the analytics stream.
+        `ReplenishmentPolicyDeclared` is raised each time a policy is declared
+        or changed, with the new version. Removing a policy raises no event of
+        its own; its open requests are cancelled with reason `POLICY_REMOVED`.
       tags:
-        - name: policy
+        - name: analytics
       message:
-        $ref: "#/components/messages/ReplenishmentPolicyDeclared"
+        oneOf:
+          - $ref: "#/components/messages/ReplenishmentRequestedAnalytics"
+          - $ref: "#/components/messages/ReplenishmentCompletedAnalytics"
+          - $ref: "#/components/messages/ReplenishmentCancelledAnalytics"
+          - $ref: "#/components/messages/ReplenishmentPolicyDeclared"
 
   warehouse.inventory.events:
     description: |
@@ -321,6 +336,100 @@ components:
               multiple: 6
               version: 1
               declared_at: "2026-10-17T09:00:00Z"
+
+    ReplenishmentRequestedAnalytics:
+      name: ReplenishmentRequested
+      title: Replenishment requested (analytics twin)
+      summary: The analytics-stream twin of ReplenishmentRequested (ADR 0008).
+      description: "Same `type`, `id`, `subject`, key and payload as the integration message; `dataschema` = `urn:warehouse:pick-face-replenishment:analytics:ReplenishmentRequested:v1`. Consumed only by cmd/pfr-projector."
+      contentType: application/cloudevents+json
+      tags:
+        - name: analytics
+      payload:
+        $ref: "#/components/schemas/ReplenishmentRequestedEvent"
+      examples:
+        - name: requested
+          summary: The analytics twin of the requested example above.
+          payload:
+            specversion: "1.0"
+            id: "6f1d2c3b-4a5e-4b7c-8d9e-0a1b2c3d4e5f"
+            source: "/warehouse/pick-face-replenishment"
+            type: "com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentRequested"
+            subject: "repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07"
+            time: "2026-10-17T09:30:00Z"
+            datacontenttype: "application/json"
+            dataschema: "urn:warehouse:pick-face-replenishment:analytics:ReplenishmentRequested:v1"
+            data:
+              request_id: "repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07"
+              site_id: "WH1"
+              sku: "SKU-1"
+              forward_bin: "WH1-FWD-A01-01-01-A"
+              source_bin: "WH1-RSV-A07-03-02-B"
+              quantity: 24
+              priority: "NORMAL"
+              policy_min: 10
+              policy_max: 60
+              requested_at: "2026-10-17T09:30:00Z"
+
+    ReplenishmentCompletedAnalytics:
+      name: ReplenishmentCompleted
+      title: Replenishment completed (analytics twin)
+      summary: The analytics-stream twin of ReplenishmentCompleted (ADR 0008).
+      description: "Same `type`, `id`, `subject`, key and payload as the integration message; `dataschema` = `urn:warehouse:pick-face-replenishment:analytics:ReplenishmentCompleted:v1`. Consumed only by cmd/pfr-projector."
+      contentType: application/cloudevents+json
+      tags:
+        - name: analytics
+      payload:
+        $ref: "#/components/schemas/ReplenishmentCompletedEvent"
+      examples:
+        - name: completed
+          summary: The analytics twin of the completed example above.
+          payload:
+            specversion: "1.0"
+            id: "0b9a8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d"
+            source: "/warehouse/pick-face-replenishment"
+            type: "com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCompleted"
+            subject: "repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07"
+            time: "2026-10-17T10:05:00Z"
+            datacontenttype: "application/json"
+            dataschema: "urn:warehouse:pick-face-replenishment:analytics:ReplenishmentCompleted:v1"
+            data:
+              request_id: "repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07"
+              site_id: "WH1"
+              sku: "SKU-1"
+              forward_bin: "WH1-FWD-A01-01-01-A"
+              source_bin: "WH1-RSV-A07-03-02-B"
+              quantity: 24
+              completed_at: "2026-10-17T10:05:00Z"
+
+    ReplenishmentCancelledAnalytics:
+      name: ReplenishmentCancelled
+      title: Replenishment cancelled (analytics twin)
+      summary: The analytics-stream twin of ReplenishmentCancelled (ADR 0008).
+      description: "Same `type`, `id`, `subject`, key and payload as the integration message; `dataschema` = `urn:warehouse:pick-face-replenishment:analytics:ReplenishmentCancelled:v1`. Consumed only by cmd/pfr-projector."
+      contentType: application/cloudevents+json
+      tags:
+        - name: analytics
+      payload:
+        $ref: "#/components/schemas/ReplenishmentCancelledEvent"
+      examples:
+        - name: cancelled
+          summary: The analytics twin of the cancelled example above.
+          payload:
+            specversion: "1.0"
+            id: "4d3c2b1a-0f9e-4d8c-8b7a-6f5e4d3c2b1a"
+            source: "/warehouse/pick-face-replenishment"
+            type: "com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentCancelled"
+            subject: "repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07"
+            time: "2026-10-17T09:50:00Z"
+            datacontenttype: "application/json"
+            dataschema: "urn:warehouse:pick-face-replenishment:analytics:ReplenishmentCancelled:v1"
+            data:
+              request_id: "repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07"
+              site_id: "WH1"
+              sku: "SKU-1"
+              reason: "ASSIGNMENT_CHANGED"
+              cancelled_at: "2026-10-17T09:50:00Z"
 
     BinStockLevelChanged:
       name: BinStockLevelChanged

@@ -15,9 +15,13 @@ Pick-Face Replenishment: WMS-tier Supporting bounded context of the warehouse-sy
   sweep `POST /sites/{siteId}/evaluate`, or by hand with `POST /replenishments`. The source is the fullest reserve bin.
 - Completes the request from inventory-storage's `StockRelocated` (reason `REPLENISHMENT`) and publishes
   `ReplenishmentRequested`, `ReplenishmentCompleted` and `ReplenishmentCancelled` through a transactional outbox.
-- One binary: `cmd/api` (REST on `:8080`, the outbox relay and three Kafka consumers, all always on). It runs on real
+- `cmd/api` (REST on `:8080`, the outbox relay and three Kafka consumers, all always on). It runs on real
   Postgres and real Kafka only: there is no in-memory mode ([ADR 0006](docs/adr/0006-postgres-and-kafka-are-the-only-runtime.md)).
-  No auth, no MCP.
+  No auth.
+- `cmd/mcp`: a read-only MCP server (Streamable HTTP, `:8090`) over the same read use cases ([ADR 0007](docs/adr/0007-mcp-server-adoption.md)).
+- `cmd/pfr-projector` + `cmd/pfr-reports`: the analytics read side, a replenishment funnel over a separate analytical
+  database ([ADR 0008](docs/adr/0008-analytics-read-side.md)).
+- `web/`: the `replenishment_mfe` Module Federation remote for the warehouse console.
 
 The execution chain after `ReplenishmentRequested` is built end to end on `develop`: wes-work-planning plans one
 `REPLENISH` work unit per request (its ADR 0042, consumer opt-in with `REPLENISHMENT_MODE=kafka`),

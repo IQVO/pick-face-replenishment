@@ -12,7 +12,7 @@ checked against each sibling's `origin/develop` (`apis/asyncapi.yaml`, `apis/ope
 
 **Fleet rules that shape this page.** The service makes **no outbound HTTP or MCP call** to any context: the module
 imports `net/http` only for its own server, and cross-context data is event-fed local copies (ADR 0003). REST is
-unauthenticated, and there is no MCP binary. Kafka is the single broker of the platform; every message is a CloudEvents
+unauthenticated, and its MCP server (`cmd/mcp`, ADR 0007) is read-only. Kafka is the single broker of the platform; every message is a CloudEvents
 1.0 structured-mode event.
 
 ## Upstream and downstream edges
@@ -27,8 +27,9 @@ unauthenticated, and there is no MCP binary. Kafka is the single broker of the p
 | process-path-management to wes-work-planning | Kafka `warehouse.process-path-management.events` (catalogue replay) | `ProcessPathCreated` for the `REPLENISH` path | **declared, seeding is an operator step** (process-path-management ADR 0036): `catalogue/paths.json` has `REPLENISH` with `matchPrefix` `replenish`, capability `replenish` and intake `REPLENISHMENT`, applied by `scripts/seed_catalogue.py`. Until it is seeded in a cluster, wes-work-planning dead-letters the requests (its ADR 0042). |
 | wes-work-planning to fulfillment-execution | Kafka `warehouse.work-planning.events` | `WorkReleased` with a `replenishment` object | **built and published** (P3): wes-work-planning releases `WorkReleased` with the additive `replenishment` object (its ADR 0042), and fulfillment-execution creates a `REPLENISH` task from `WorkReleased.data.replenishment` (its ADR 0050) and announces it on `TaskAvailable`. |
 | fulfillment-execution to inventory-storage | Kafka `warehouse.fulfillment.events` | `TaskCompleted` with `request_ref`, then `StockRelocated` with reason `REPLENISHMENT` | **built and published** (P4): fulfillment-execution publishes `TaskCompleted` with `request_ref` (its ADR 0050), inventory-storage applies it as a relocation with reason `REPLENISHMENT` (its ADR 0041). |
-| this service to analytics | Kafka `warehouse.pick-face-replenishment.analytics` | the three request events plus `ReplenishmentPolicyDeclared` | no consumer in any repository checked |
-| this service to warehouse-ops-agent, warehouse-console, agents | REST (Open Host Service) | `apis/openapi.yaml` | no client in any repository checked; "later phases" in ADR 0001. Not routed in `warehouse-infra` (no Kong route). |
+| this service to its own analytics read side | Kafka `warehouse.pick-face-replenishment.analytics` | the three request events plus `ReplenishmentPolicyDeclared` | **built** (ADR 0008): `cmd/pfr-projector` is the only consumer (group `ANALYTICS_CONSUMER_GROUP`) and folds the events into a separate analytical database; `cmd/pfr-reports` serves `GET /reports/replenishment-funnel` and `/reports/freshness` from it. No other context consumes this stream. |
+| this service to warehouse-ops-agent, warehouse-console, agents | REST (Open Host Service) and read-only MCP (`cmd/mcp`, `list_policies`, `get_policy`, `list_pick_faces`, `list_replenishments`, `get_replenishment`) | `apis/openapi.yaml`, ADR 0007 | no client in any repository checked; "later phases" in ADR 0001. Not routed in `warehouse-infra` (no Kong route); the chart can render the API route and an opt-in MCP route (`mcp.route.enabled`). |
+| warehouse-console to this service | Module Federation remote `replenishment_mfe` (`web/`) calling `/api/pick-face-replenishment` only | `apis/openapi.yaml` | **built**: policies (declare/edit with `If-Match`), pick faces board, replenishments (manual request, cancel; `Idempotency-Key` on every POST). The console shell entry and the web gateway path `/mfes/pick-face-replenishment/` are `warehouse-console` / `warehouse-infra` changes, not made here. |
 | this service to any sibling over REST or MCP | none | none | banned by the fleet rule, and absent |
 
 Consequence: the chain is **built end to end on `develop` but not live**. A request is raised here, planned as one

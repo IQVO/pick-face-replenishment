@@ -32,3 +32,17 @@ metadata request. Topics are not checked: the relay's writer auto-creates the
 service's own topics on first write (fleet convention), the service never
 creates them through an admin API, and a consumed topic that does not exist
 yet shows as consumer retry logs, not as unreadiness.
+{{- if .Values.mcp.enabled }}
+
+MCP server (ADR 0007, read-only, no auth): {{ include "pick-face-replenishment.mcpFullname" . }}:{{ .Values.mcp.service.port }}/mcp (Streamable HTTP).
+{{- end }}
+{{- if .Values.analytics.enabled }}
+
+Analytics read side (ADR 0008): group {{ .Values.analytics.consumerGroup }} <- warehouse.pick-face-replenishment.analytics
+  projector: {{ include "pick-face-replenishment.analyticsProjectorFullname" . }} (writes the analytical database only)
+  reports:   {{ include "pick-face-replenishment.analyticsReportsFullname" . }}:{{ .Values.analytics.reports.service.port }}  GET /reports/replenishment-funnel, /reports/freshness
+{{- end }}
+{{- if .Values.frontend.enabled }}
+
+Web remote (replenishment_mfe): {{ include "pick-face-replenishment.frontendFullname" . }}:{{ .Values.frontend.service.port }} (ClusterIP; the Nginx web gateway serves it at /mfes/pick-face-replenishment/).
+{{- end }}
