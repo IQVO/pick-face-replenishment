@@ -20,3 +20,4 @@ section.
 | [0004](/docs/adr/0004-cloudevents-envelope-and-type-catalogue) | CloudEvents envelope and type catalogue | Accepted (2026-10-17) |
 | [0005](/docs/adr/0005-evaluation-semantics-and-persistence) | evaluation semantics and persistence | Accepted (2026-10-17) |
 | [0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime) | Postgres and Kafka are the only runtime | Accepted (2026-10-17) |
+| [0007](/docs/adr/0007-mcp-server-adoption) | MCP server adoption (read-only, unauthenticated, additive) | Accepted (2026-10-18) |
