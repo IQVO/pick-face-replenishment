@@ -100,7 +100,7 @@ Read-only reports (`GET /reports/replenishment-funnel`, `GET /reports/freshness`
 `replenishment_mfe` has no build-time API configuration: it reads `window.__WAREHOUSE_CONFIG__.apiOrigin` from the
 console's runtime `/config.json` and calls `${apiOrigin}/api/pick-face-replenishment` (the only base it ever uses). A
 production build without an `apiOrigin` throws instead of falling back to a developer port. The dev server runs on
-`:5195` and falls back to `http://localhost:8080` (`cmd/api`'s own default).
+`:5196` and falls back to `http://localhost:8080` (`cmd/api`'s own default).
 
 ## Fixed values (not configurable)
 

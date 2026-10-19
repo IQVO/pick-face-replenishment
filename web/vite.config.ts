@@ -5,15 +5,15 @@ import { federation } from "@module-federation/vite";
 // replenishment-mfe: the pick-face-replenishment remote. Exposes ./App -- the
 // warehouse-console shell lazy-loads it as `replenishment_mfe/App` and mounts
 // it under its own `/pick-face-replenishment/*` splat route. Also runnable
-// standalone on :5195 for local development without the shell (see main.tsx).
+// standalone on :5196 for local development without the shell (see main.tsx).
 //
 // PINNED host/remote contract (warehouse-console vite.config.ts will carry the
 // matching entry; change both together or not at all):
 //   federation container  replenishment_mfe
 //   exposed module        ./App (default export, no props)
 //   production base       /mfes/pick-face-replenishment/   (Nginx web gateway path)
-//   dev/preview port      5195 (next free after slotting-optimization's 5194 on
-//                          the fleet's 5181+ ladder)
+//   dev/preview port      5196 (unique on the fleet's 5181+ ladder: slotting-optimization
+//                          holds 5194, task-interleaving 5197; 5195 was a duplicate)
 //
 // `base` is the deployment-time asset namespace. In the kind cluster this
 // remote is served by its own nginx pod behind the Nginx web gateway at
@@ -55,13 +55,13 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 5195,
+    port: 5196,
     strictPort: true,
     cors: true,
-    origin: "http://localhost:5195",
+    origin: "http://localhost:5196",
   },
   preview: {
-    port: 5195,
+    port: 5196,
     strictPort: true,
     cors: true,
   },
