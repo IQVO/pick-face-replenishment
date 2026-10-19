@@ -27,12 +27,20 @@ func loadSpec(t *testing.T) map[string]any {
 	return spec
 }
 
-// specOperations lists "METHOD /path" for every operation of the contract.
-func specOperations(t *testing.T) []string {
+// reportsPrefix is the path prefix of the operations served by the separate
+// pfr-reports binary (NewReportsRouter), not by cmd/api (NewRouter).
+const reportsPrefix = "/reports/"
+
+// specOperations lists "METHOD /path" for the operations of the contract that
+// cmd/api serves (reports false) or that cmd/pfr-reports serves (reports true).
+func specOperations(t *testing.T, reports bool) []string {
 	t.Helper()
 	paths, _ := loadSpec(t)["paths"].(map[string]any)
 	var ops []string
 	for path, item := range paths {
+		if strings.HasPrefix(path, reportsPrefix) != reports {
+			continue
+		}
 		methods, _ := item.(map[string]any)
 		for method := range methods {
 			if slices.Contains([]string{"get", "put", "post", "delete", "patch"}, method) {
@@ -44,11 +52,11 @@ func specOperations(t *testing.T) []string {
 	return ops
 }
 
-func routerOperations(t *testing.T) []string {
+func routerOperations(t *testing.T, router http.Handler) []string {
 	t.Helper()
-	routes, ok := NewRouter(&Server{}).(chi.Routes)
+	routes, ok := router.(chi.Routes)
 	if !ok {
-		t.Fatal("NewRouter does not return a chi router")
+		t.Fatal("the router is not a chi router")
 	}
 	var ops []string
 	err := chi.Walk(routes, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
@@ -63,15 +71,34 @@ func routerOperations(t *testing.T) []string {
 }
 
 // TestRouterServesExactlyTheDocumentedOperations is the contract check of a
-// repo without a schemathesis job: every operation of apis/openapi.yaml is
-// routed and the router serves nothing the contract does not document.
+// repo without a schemathesis job: every operation of apis/openapi.yaml that
+// cmd/api serves is routed and the router serves nothing the contract does not
+// document.
 func TestRouterServesExactlyTheDocumentedOperations(t *testing.T) {
-	spec, router := specOperations(t), routerOperations(t)
+	spec, router := specOperations(t, false), routerOperations(t, NewRouter(&Server{}))
 	if len(spec) != 12 {
-		t.Fatalf("the contract documents %d operations, expected 12: %v", len(spec), spec)
+		t.Fatalf("the contract documents %d API operations, expected 12: %v", len(spec), spec)
 	}
 	if !slices.Equal(spec, router) {
 		t.Fatalf("router and contract differ\ncontract: %v\nrouter:   %v", spec, router)
+	}
+}
+
+// TestReportsRouterServesTheDocumentedReports: the reports of apis/openapi.yaml
+// (/reports/*) are exactly what cmd/pfr-reports routes, besides its probe.
+func TestReportsRouterServesTheDocumentedReports(t *testing.T) {
+	spec := specOperations(t, true)
+	if len(spec) != 2 {
+		t.Fatalf("the contract documents %d report operations, expected 2: %v", len(spec), spec)
+	}
+	var router []string
+	for _, op := range routerOperations(t, NewReportsRouter(&ReportsServer{})) {
+		if strings.Contains(op, reportsPrefix) {
+			router = append(router, op)
+		}
+	}
+	if !slices.Equal(spec, router) {
+		t.Fatalf("reports router and contract differ\ncontract: %v\nrouter:   %v", spec, router)
 	}
 }
 
@@ -101,6 +128,8 @@ func TestProblemSlugsMatchTheContract(t *testing.T) {
 	produced := map[string]bool{
 		internalProblem.slug: true, idempotencyKeyRequired.slug: true, idempotencyKeyReused.slug: true,
 		dependencyUnavailable.slug: true,
+		// The reports binary's problems (NewReportsRouter).
+		invalidReportRange.slug: true, invalidReportGranularity.slug: true, reportStoreError.slug: true,
 	}
 	for _, entry := range problemCatalogue {
 		produced[entry.p.slug] = true

@@ -30,6 +30,10 @@ occurrence and shared by both copies.
 
 Removing a policy raises no event of its own: its open requests are cancelled with reason `POLICY_REMOVED`.
 
+The analytics stream is not an integration contract: its only consumer is this service's `cmd/pfr-projector` (ADR 0008),
+which projects it into the analytical database behind `GET /reports/replenishment-funnel`. Dead letters go to
+`warehouse.pick-face-replenishment.analytics.dlq`. `apis/asyncapi.yaml` declares the twin messages on that channel.
+
 ## Consumed
 
 | Type | Topic | Key | Consumer (mode / group variable) |

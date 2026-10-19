@@ -15,12 +15,15 @@ This test is the sensor for that decision. It fails if:
   * the route does not strip its /api/pick-face-replenishment prefix before
     the request reaches the service (the service serves /policies, ... at
     the root),
-  * the CORS plugin allows "*" or does not allow the Idempotency-Key header
-    the POST commands send,
+  * the CORS plugin allows "*" or does not allow the Idempotency-Key and
+    If-Match headers the web remote's POSTs and policy PUT send,
+  * the MCP route (mcp.route.enabled) does not rewrite its host prefix to the
+    SDK's /mcp endpoint, or targets anything but the -mcp Service,
   * defaults (no --set flags beyond the mandatory runtime values) render any
     Kong object at all — standalone installs without Kong must be unaffected.
 
-This context has one API and no MCP, reports or web route.
+This context routes its API and (optionally) its MCP server; reports and the web
+remote have no Kong route (the Nginx web gateway owns the frontend).
 
 Run: python3 charts/pick-face-replenishment/tests/test_kong_config.py
 """
@@ -54,6 +57,10 @@ ENABLE_KONG = MANDATORY + [
     "--set", "kongPlugins.cors.enabled=true",
     "--set", "kongPlugins.prometheus.enabled=true",
     "--set", "kongPlugins.opentelemetry.enabled=true",
+    "--set", "mcp.enabled=true",
+    "--set", "mcp.route.enabled=true",
+    "--set", "mcp.route.parentRefs[0].name=warehouse-gateway",
+    "--set", "mcp.route.parentRefs[0].namespace=kong",
 ]
 
 
@@ -71,8 +78,8 @@ def render(extra_args: list[str]) -> list[dict]:
 
 
 def check_routes(routes: list[dict], plugins: dict[str, dict], failures: list[str]) -> None:
-    if not routes:
-        failures.append("enabled render contains no HTTPRoute at all")
+    if len(routes) != 2:
+        failures.append(f"enabled render must contain the api and the mcp HTTPRoute, got {len(routes)}")
     if not plugins:
         failures.append("enabled render contains no KongPlugin at all")
     for r in routes:
@@ -89,6 +96,9 @@ def check_routes(routes: list[dict], plugins: dict[str, dict], failures: list[st
 
 
 def check_rule(name: str, rule: dict, failures: list[str]) -> None:
+    if name.endswith("-mcp"):
+        check_mcp_rule(name, rule, failures)
+        return
     prefix = rule["matches"][0]["path"]["value"]
     if prefix != "/api/pick-face-replenishment":
         failures.append(f"HTTPRoute {name} matches {prefix!r}, expected '/api/pick-face-replenishment'")
@@ -99,6 +109,18 @@ def check_rule(name: str, rule: dict, failures: list[str]) -> None:
     target = rewrites[0]["urlRewrite"]["path"].get("replacePrefixMatch")
     if target != "/":
         failures.append(f"HTTPRoute {name} rewrites to {target!r}, expected '/' (the service serves at the root)")
+
+
+def check_mcp_rule(name: str, rule: dict, failures: list[str]) -> None:
+    prefix = rule["matches"][0]["path"]["value"]
+    if prefix != "/api/mcp/pick-face-replenishment":
+        failures.append(f"HTTPRoute {name} matches {prefix!r}, expected '/api/mcp/pick-face-replenishment'")
+    rewrites = [f for f in rule.get("filters", []) if f.get("type") == "URLRewrite"]
+    if len(rewrites) != 1 or rewrites[0]["urlRewrite"]["path"].get("replacePrefixMatch") != "/mcp":
+        failures.append(f"HTTPRoute {name} must rewrite its prefix to /mcp, the SDK's endpoint")
+    backend = rule["backendRefs"][0]["name"]
+    if backend != f"{RELEASE}-mcp":
+        failures.append(f"HTTPRoute {name} targets {backend!r}, expected the {RELEASE}-mcp Service")
 
 
 def check_plugins(plugins: dict[str, dict], failures: list[str]) -> None:
@@ -118,6 +140,8 @@ def check_plugins(plugins: dict[str, dict], failures: list[str]) -> None:
         failures.append("the cors plugin allows origin '*': endpoints are unauthenticated, use the exact origin")
     if "Idempotency-Key" not in cfg.get("headers", []):
         failures.append("the cors plugin must allow the Idempotency-Key request header the commands send")
+    if "If-Match" not in cfg.get("headers", []):
+        failures.append("the cors plugin must allow the If-Match request header the policy PUT sends")
 
 
 def main() -> int:
