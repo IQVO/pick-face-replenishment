@@ -7,7 +7,8 @@ sidebar_position: 2
 
 # Configuration
 
-`cmd/api` is the only binary. Everything is read from the environment at boot by `cmd/api/main.go`, `config.go`,
+`cmd/api` is the main binary; `cmd/mcp`, `cmd/pfr-projector` and `cmd/pfr-reports` are separate deployables with their own,
+smaller environment (sections below). Everything is read from the environment at boot by `cmd/api/main.go`, `config.go`,
 `consumers.go`, `relay.go`, `adapters.go` and `internal/adapters/outbound/postgres/migrate.go`; there are no flags and
 no config file. Test-only variables do not exist in the non-test code. Variables marked **yes** in *Required* have no
 default and no fallback.
@@ -51,10 +52,55 @@ The three `*_MODE` variables are kept for the deployment contract, but there is 
 
 ### Readiness
 
-`GET /readyz` is ready only when the shutdown drain gate is open, Postgres answers a ping and Kafka answers a metadata
-request with a leader for every topic the service consumes or produces. The verdict is cached for 3 s and a round of
-checks is bounded by 2 s. The service never creates topics: a topic that does not exist yet makes `/readyz` answer
-`503` (`dependency-unavailable`, `not ready: kafka`) until infrastructure creates it. `GET /healthz` is liveness only.
+`GET /readyz` is ready only when the shutdown drain gate is open, Postgres answers a ping and a Kafka broker answers a
+metadata request that names no topic (reachability only). The verdict is cached for 3 s and a round of checks is
+bounded by 2 s. Topics are **not** part of readiness: the service never creates topics through an admin API, the cluster
+broker auto-creates them on first write (the relay's writer sets `AllowAutoTopicCreation`; infrastructure declares none),
+and a consumed topic that does not exist yet shows as consumer retry logs, never as `503`. An unreachable broker or
+database answers `503` (`dependency-unavailable`, `not ready: kafka`). `GET /healthz` is liveness only.
+
+## `cmd/mcp`
+
+Read-only MCP server (ADR 0007). Reads no Kafka variable, builds no outbox, and has no auth.
+
+| Variable | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | none | **yes** | Postgres DSN of the OLTP database (same as `cmd/api`). Missing is a boot error. |
+| `MIGRATIONS_DATABASE_URL` | value of `DATABASE_URL` | no | Direct DSN for the boot migrations. |
+| `MCP_ADDR` | `:8090` | no | Listen address; MCP is served at `/mcp` (and `/`), `GET /healthz` for probes. |
+| `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES` | `FWD`, `RSV` | no | Same meaning as for `cmd/api`. |
+| `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`, `error`. |
+
+## `cmd/pfr-projector`
+
+The only writer of the analytical database (ADR 0008). It never opens the OLTP database.
+
+| Variable | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `ANALYTICS_DATABASE_URL` | none | **yes** | DSN of the analytical Postgres (a database separate from `DATABASE_URL`). The embedded analytical migrations run at boot. |
+| `KAFKA_BROKERS` | none | **yes** | Comma-separated brokers. |
+| `ANALYTICS_CONSUMER_GROUP` | none | **yes** | Stable consumer group of the projector; a brand-new group re-reads the topic from the earliest offset (the backfill). |
+| `ADMIN_ADDR` | `:8091` | no | `/healthz` and `/readyz` (503 once shutdown begins). |
+| `LOG_LEVEL` | `info` | no | As above. |
+
+A missing required variable is a boot error naming all of them.
+
+## `cmd/pfr-reports`
+
+Read-only reports (`GET /reports/replenishment-funnel`, `GET /reports/freshness`), no auth, never dials Kafka.
+
+| Variable | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `ANALYTICS_DATABASE_URL` | none | **yes** | DSN of the analytical Postgres; opened through a read-only pool. |
+| `HTTP_ADDR` | `:8092` | no | Listen address; `GET /healthz` for probes. |
+| `LOG_LEVEL` | `info` | no | As above. |
+
+## `web/`
+
+`replenishment_mfe` has no build-time API configuration: it reads `window.__WAREHOUSE_CONFIG__.apiOrigin` from the
+console's runtime `/config.json` and calls `${apiOrigin}/api/pick-face-replenishment` (the only base it ever uses). A
+production build without an `apiOrigin` throws instead of falling back to a developer port. The dev server runs on
+`:5195` and falls back to `http://localhost:8080` (`cmd/api`'s own default).
 
 ## Fixed values (not configurable)
 
@@ -93,12 +139,22 @@ fails when `cmd/api` reads a variable the chart does not render.
 | `config.shutdownDrainDelay` | `SHUTDOWN_DRAIN_DELAY` | no | not rendered (binary: `5s`) |
 
 The DSNs live in a Secret only; everything else is also mounted from the chart ConfigMap with `envFrom`. Probes:
-`startupProbe` and `livenessProbe` on `/healthz`, `readinessProbe` on `/readyz` (which checks Postgres and Kafka, so a
+`startupProbe` and `livenessProbe` on `/healthz`, `readinessProbe` on `/readyz` (which checks Postgres and that a Kafka broker answers, not topics, so a
 broker outage takes the pod out of the Service by design; period 10 s, timeout 5 s, 3 failures). The pod runs as uid
 1000, non-root, with a read-only root filesystem and every capability dropped.
 `terminationGracePeriodSeconds` is 40: `SHUTDOWN_DRAIN_DELAY` (5 s) + 10 s HTTP drain + 10 s consumers + 10 s relay, and
 the chart refuses a value below 35. Gateway (`gatewayApi`), Ingress, HPA (`autoscaling.api`) and the three Kong plugins
-(`kongPlugins.cors`, `.prometheus`, `.opentelemetry`; no auth plugin) are off by default.
+(`kongPlugins.cors`, `.prometheus`, `.opentelemetry`; no auth plugin) are off by default. The CORS plugin allows the
+`Idempotency-Key` and `If-Match` request headers the web remote sends.
+
+Three optional components, each its own workload with its own `app.kubernetes.io/component` label and, where it has an
+HTTP surface, its own Service (`tests/test_service_selectors.py` pins that every Service selects exactly one Deployment):
+
+| Values block | Renders | Default |
+| --- | --- | --- |
+| `mcp` | Deployment + Service `<release>-mcp:8090` running `/app/mcp`; `mcp.route.enabled` adds an HTTPRoute `/api/mcp/pick-face-replenishment` rewritten to `/mcp` | off |
+| `analytics` | Deployment `<release>-projector` (`/app/pfr-projector`, no Service), Deployment + Service `<release>-reports:80` (`/app/pfr-reports`), and a Secret with `ANALYTICS_DATABASE_URL` from `analytics.url` (or `analytics.existingSecret`); the chart refuses to render it without a DSN source or `analytics.consumerGroup` | off |
+| `frontend` | nginx Deployment + ClusterIP Service `<release>-frontend:80` for the `replenishment_mfe` remote (image `frontend.image.*`); no route, the Nginx web gateway owns it | off |
 
 ## Not configurable here
 

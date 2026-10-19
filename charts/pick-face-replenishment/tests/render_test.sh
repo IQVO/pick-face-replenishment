@@ -73,7 +73,7 @@ grep -q 'path: /healthz' <<<"$(probe_block livenessProbe "$deployment")" || fail
 grep -q 'path: /healthz' <<<"$(probe_block startupProbe "$deployment")" || fail "startupProbe must hit /healthz"
 readiness="$(probe_block readinessProbe "$deployment")"
 grep -q 'path: /readyz' <<<"$readiness" || fail "readinessProbe must hit /readyz"
-# /readyz checks Postgres AND Kafka (cached 3 s, bounded 2 s): give it a sane
+# /readyz checks Postgres AND that a Kafka broker answers (cached 3 s, bounded 2 s): give it a sane
 # delay, period, timeout and failure budget so a broker blip does not flap.
 grep -q 'initialDelaySeconds: [1-9]' <<<"$readiness" || fail "readinessProbe needs an initialDelaySeconds"
 grep -q 'periodSeconds: [1-9]' <<<"$readiness" || fail "readinessProbe needs a periodSeconds"
@@ -169,5 +169,93 @@ expect_refusal "an empty layout group" "config.layoutConsumerGroup" "${base[@]}"
 expect_refusal "a short grace period" "terminationGracePeriodSeconds" "${base[@]}" --set terminationGracePeriodSeconds=20
 expect_refusal "INVENTORY_MODE through extraEnv" "*_MODE" "${base[@]}" --set 'extraEnv[0].name=INVENTORY_MODE' --set 'extraEnv[0].value=permissive'
 expect_refusal "LAYOUT_MODE through extraEnv" "ADR 0006" "${base[@]}" --set 'extraEnv[0].name=LAYOUT_MODE' --set 'extraEnv[0].value=kafka'
+
+# --- the optional components (mcp, analytics, frontend) -------------------------
+# Off by default: the default render is the api alone.
+default_render="$(render "${base[@]}")"
+for component in mcp analytics-projector analytics-reports frontend; do
+  if grep -q "app.kubernetes.io/component: $component\$" <<<"$default_render"; then
+    fail "the $component component must not render by default"
+  fi
+done
+
+# A binary's env literals (os.Getenv / getenv("...")) -- for cmd/<dir> -- must all be
+# rendered by its Deployment, so a new variable fails until the chart carries it.
+cmd_env() { # cmd_env <dir>...
+  local d f
+  for d in "$@"; do
+    for f in "$repo_dir/cmd/$d"/*.go; do
+      case "$f" in *_test.go) continue ;; esac
+      grep -hoE '(os\.Getenv|getenv)\("[A-Z][A-Z0-9_]*"' "$f" || true
+    done
+  done | sed -E 's/.*"([A-Z0-9_]+)".*/\1/' | sort -u
+}
+assert_renders_env() { # assert_renders_env <label> <rendered deployment> <dir>...
+  local label="$1" rendered="$2" var; shift 2
+  local vars; vars="$(cmd_env "$@")"
+  [[ -n "$vars" ]] || fail "found no env literals in cmd/$* ($label); the scan is looking in the wrong place"
+  for var in $vars; do
+    grep -q "name: $var\$" <<<"$rendered" || fail "the $label Deployment does not render $var, which cmd/$* reads"
+  done
+}
+
+# MCP (ADR 0007): read-only, Postgres only, its own Service.
+mcp_dep="$(render_only mcp-deployment.yaml "${base[@]}" --set mcp.enabled=true)"
+mcp_svc="$(render_only mcp-service.yaml "${base[@]}" --set mcp.enabled=true)"
+grep -q 'app.kubernetes.io/component: mcp' <<<"$mcp_dep" || fail "the mcp Deployment is not labelled component=mcp"
+grep -q 'command: \["/app/mcp"\]' <<<"$mcp_dep" || fail "the mcp Deployment must run /app/mcp"
+grep -A1 'selector:' <<<"$mcp_svc" >/dev/null && grep -q 'app.kubernetes.io/component: mcp' <<<"$mcp_svc" || fail "the mcp Service must select component=mcp"
+grep -A4 'name: DATABASE_URL$' <<<"$mcp_dep" | grep -q 'secretKeyRef:' || fail "the mcp DATABASE_URL must come from a Secret"
+if grep -Eq 'name: (KAFKA_BROKERS|[A-Z]+_CONSUMER_GROUP|OUTBOX_[A-Z_]+)$' <<<"$mcp_dep"; then
+  fail "the mcp Deployment must not get Kafka/relay/consumer env (read-only, never dials Kafka)"
+fi
+no_mode "mcp Deployment" "$mcp_dep"
+mcp_full="$(render_only mcp-deployment.yaml "${everything[@]}")"
+assert_renders_env "mcp" "$mcp_full" mcp
+[[ "$(env_value "$(render_only mcp-deployment.yaml "${base[@]}" --set mcp.enabled=true --set mcp.httpAddr=:9191)" MCP_ADDR)" == ":9191" ]] || fail "mcp.httpAddr does not reach MCP_ADDR"
+if render_only mcp-route.yaml "${base[@]}" --set mcp.enabled=true 2>&1 | grep -q 'kind: HTTPRoute'; then fail "the mcp route must stay off until mcp.route.enabled"; fi
+
+# Analytics (ADR 0008): projector (writer) + reports (reader) on a separate DSN.
+analytics=("${base[@]}" --set analytics.enabled=true --set analytics.url=postgres://u@example.invalid:5432/analytics)
+proj="$(render_only projector-deployment.yaml "${analytics[@]}")"
+rep="$(render_only reports-deployment.yaml "${analytics[@]}")"
+proj_full="$(render_only projector-deployment.yaml "${everything[@]}")"
+rep_full="$(render_only reports-deployment.yaml "${everything[@]}")"
+grep -q 'command: \["/app/pfr-projector"\]' <<<"$proj" || fail "the projector must run /app/pfr-projector"
+grep -q 'command: \["/app/pfr-reports"\]' <<<"$rep" || fail "the reports Deployment must run /app/pfr-reports"
+[[ "$(env_value "$proj" ANALYTICS_CONSUMER_GROUP)" == "pick-face-replenishment-analytics" ]] || fail "ANALYTICS_CONSUMER_GROUP is not rendered from analytics.consumerGroup"
+[[ "$(env_value "$proj" KAFKA_BROKERS)" == "kafka.example.invalid:9092" ]] || fail "the projector KAFKA_BROKERS is not rendered from kafka.brokers"
+grep -A4 'name: ANALYTICS_DATABASE_URL$' <<<"$proj" | grep -q 'secretKeyRef:' || fail "the projector DSN must come from a Secret"
+grep -A4 'name: ANALYTICS_DATABASE_URL$' <<<"$rep" | grep -q 'secretKeyRef:' || fail "the reports DSN must come from a Secret"
+if grep -Eq 'name: (DATABASE_URL|MIGRATIONS_DATABASE_URL)$' <<<"$proj$rep"; then fail "analytics must never get the OLTP DSN"; fi
+if grep -q 'name: KAFKA_BROKERS$' <<<"$rep"; then fail "the reports Deployment never dials Kafka"; fi
+grep -q 'kind: Service' <<<"$(render "${analytics[@]}" --show-only templates/reports-deployment.yaml)" || fail "the reports Service was not rendered"
+if grep -q 'kind: Service' <<<"$proj"; then fail "the projector must not render a Service (admin port is probes-only)"; fi
+grep -q 'path: /readyz' <<<"$proj" || fail "the projector readiness must hit /readyz"
+assert_renders_env "projector" "$proj_full" pfr-projector
+assert_renders_env "reports" "$rep_full" pfr-reports
+analytics_secret="$(render_only analytics-secret.yaml "${analytics[@]}")"
+grep -q 'ANALYTICS_DATABASE_URL: "postgres://u@example.invalid:5432/analytics"' <<<"$analytics_secret" || fail "analytics.url does not land in the analytics Secret"
+existing_analytics="$(render "${base[@]}" --set analytics.enabled=true --set analytics.existingSecret=my-analytics)"
+if grep -q 'ANALYTICS_DATABASE_URL: "' <<<"$existing_analytics"; then fail "an analytics.existingSecret must suppress the analytics Secret"; fi
+grep -A4 'name: ANALYTICS_DATABASE_URL$' <<<"$existing_analytics" | grep -q 'name: my-analytics' || fail "analytics.existingSecret is not referenced"
+renamed_group="$(render_only projector-deployment.yaml "${analytics[@]}" --set analytics.consumerGroup=g-analytics)"
+[[ "$(env_value "$renamed_group" ANALYTICS_CONSUMER_GROUP)" == "g-analytics" ]] || fail "analytics.consumerGroup does not reach ANALYTICS_CONSUMER_GROUP"
+expect_refusal "analytics without a DSN source" "analytics.url nor analytics.existingSecret" "${base[@]}" --set analytics.enabled=true
+expect_refusal "analytics without a consumer group" "analytics.consumerGroup" "${analytics[@]}" --set analytics.consumerGroup=
+
+# The web remote (replenishment_mfe): its own Deployment + ClusterIP Service,
+# no database/Kafka env, no route in this chart.
+frontend_dep="$(render_only frontend-deployment.yaml "${base[@]}" --set frontend.enabled=true)"
+frontend_svc="$(render_only frontend-service.yaml "${base[@]}" --set frontend.enabled=true)"
+grep -q 'app.kubernetes.io/component: frontend' <<<"$frontend_dep" || fail "the frontend Deployment was not rendered with frontend.enabled=true"
+grep -q 'app.kubernetes.io/component: frontend' <<<"$frontend_svc" || fail "the frontend Service was not rendered with frontend.enabled=true"
+grep -q 'type: ClusterIP' <<<"$frontend_svc" || fail "the frontend Service must stay ClusterIP"
+if grep -Eq 'name: (DATABASE_URL|KAFKA_BROKERS)$' <<<"$frontend_dep"; then fail "the frontend Deployment must not get database/Kafka env (it serves static bytes)"; fi
+together="$(render "${base[@]}" --set mcp.enabled=true --set analytics.enabled=true --set analytics.url=postgres://u@h/a --set frontend.enabled=true)"
+if grep -E 'kind: (Ingress|HTTPRoute)' <<<"$together" | grep -q frontend; then fail "frontend routing must not live in this chart (the Nginx web gateway owns it)"; fi
+for component in api mcp analytics-projector analytics-reports frontend; do
+  grep -q "app.kubernetes.io/component: $component\$" <<<"$together" || fail "$component was not rendered when every component is enabled"
+done
 
 echo "PASS: pick-face-replenishment chart render assertions"

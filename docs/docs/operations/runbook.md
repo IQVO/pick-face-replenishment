@@ -14,14 +14,13 @@ How `cmd/api` is deployed, started, drained, migrated and operated. Everything h
 
 | Artifact | State on `develop` |
 | --- | --- |
-| Dockerfile | `Dockerfile` at the repository root: digest-pinned multi-stage build of every `cmd/*` binary (`api` only), non-root uid 1000, `ENTRYPOINT ["./api"]`, port 8080. Started without environment it exits 1 naming `DATABASE_URL`, `KAFKA_BROKERS` and the three `*_CONSUMER_GROUP` variables. Built by `docker-publish` on push to `main` |
+| Dockerfile | `Dockerfile` at the repository root: digest-pinned multi-stage build of every `cmd/*` binary (`api`, `mcp`, `pfr-projector`, `pfr-reports`; the chart selects one with `command: ["/app/<name>"]`), non-root uid 1000, `ENTRYPOINT ["./api"]`, port 8080. Started without environment it exits 1 naming `DATABASE_URL`, `KAFKA_BROKERS` and the three `*_CONSUMER_GROUP` variables. Built by `docker-publish` on push to `main` |
 | Helm chart `charts/pick-face-replenishment` | present: it deploys what [ADR 0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime) requires (Postgres, Kafka, three consumers, no `*_MODE`); see [Configuration](/docs/operations/configuration#helm-chart). CI runs `charts/pick-face-replenishment/tests/*` in `chart-tests`, and `release` packages it on push to `main` |
 | `warehouse-infra` | **no entry**: no `helm-values/pick-face-replenishment.yaml`, no `terraform/dashboards/contexts/pick-face-replenishment.json`, no Kong route and no database in `terraform/services.tf` (the values that chart needs: a database Secret, `kafka.brokers`, the Kong `gatewayApi` parentRef and path `/api/pick-face-replenishment`) |
-| Kafka topics | not pre-created by the repo; the dead-letter writer allows auto-creation of `<topic>.dlq` |
+| Kafka topics | not pre-created by the repo and declared by no infrastructure: the cluster broker auto-creates every topic on first write (fleet convention, [ADR 0006 Amendment 1](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime)); the relay writer and the dead-letter writer set `AllowAutoTopicCreation` |
 
 The image and the chart exist; what is missing is the `warehouse-infra` entry, so the service is not part of the kind
-cluster yet. The sections below describe what any deployment must provide. The `drift` job's `web/` step for a directory
-that does not exist is listed as a discrepancy in the campaign report rather than fixed here.
+cluster yet. The sections below describe what any deployment must provide.
 
 ## What a deployment needs
 
@@ -30,20 +29,24 @@ that does not exist is listed as a discrepancy in the campaign report rather tha
 | Deployment | one, running `cmd/api` (REST, outbox relay and consumers are goroutines of the same process) |
 | Service port | HTTP `8080` (`HTTP_ADDR`) |
 | Liveness probe | `GET /healthz` returns `200 {"status":"ok"}` while the process runs; shutdown never flips it |
-| Readiness probe | `GET /readyz` returns `200 {"status":"ready"}`, `503 {"status":"not_ready"}` once shutdown has begun |
+| Readiness probe | `GET /readyz` returns `200 {"status":"ready"}`; `503` `dependency-unavailable` while Postgres or the Kafka broker is unreachable; `503 {"status":"not_ready"}` once shutdown has begun |
 | Database | a PostgreSQL the `DATABASE_URL` user may run DDL on (the migrations run at boot) |
 | Secrets | the DSNs only (`DATABASE_URL`, `MIGRATIONS_DATABASE_URL`); there is no auth, API key or TLS material |
 | Kafka | `KAFKA_BROKERS` (one fleet broker) for the relay and the consumers |
 
 ### Readiness and shutdown
 
-`/readyz` is a process-wide gate that is **ready from the moment the listener is up** and is flipped only by shutdown. It
-does **not** probe Postgres or Kafka. Readiness is nevertheless meaningful, because the listener only starts after
-`buildAdapters` has succeeded: the embedded migrations ran (retried 5 times over about 15 s, see `internal/bootretry`)
-and the first `Ping` of the pool worked. A database that never becomes reachable therefore keeps the process from
-listening (it exits with the last error after the retry budget) and the pod never turns ready. Kafka is dialled lazily
-inside the consumer and relay goroutines, so a broker outage never blocks boot and never turns the pod unready; it shows
-up in the logs ([Observability](/docs/operations/observability)) and as consumer lag or unpublished outbox rows.
+`/readyz` is ready only when the shutdown drain gate is open, Postgres answers a ping and a Kafka broker answers a
+metadata request that names no topic (reachability only; the verdict is cached for 3 s and a round of checks is bounded
+by 2 s). **Topics play no part in readiness**: the broker auto-creates the service's own topics on first write, so a
+pod that waited for them could never become ready and so never publish, and a consumed topic exists only once its
+producer ran. A missing consumed topic shows up as consumer retry logs (`kafka reader error; retrying`, with the
+consumer and the topic, [Observability](/docs/operations/observability)), not as an unready pod. The listener also only
+starts after `buildAdapters` has succeeded: the embedded migrations ran (retried 5 times over about 15 s, see
+`internal/bootretry`) and the first `Ping` of the pool worked. A database that never becomes reachable therefore keeps
+the process from listening (it exits with the last error after the retry budget). Kafka is dialled lazily inside the
+consumer and relay goroutines, so a broker outage never blocks boot; it turns the pod unready (`503`
+`dependency-unavailable`, `not ready: kafka`) and shows up in the logs and as consumer lag or unpublished outbox rows.
 
 On `SIGINT` or `SIGTERM` the order is fixed in `serveUntilSignal`:
 
@@ -75,7 +78,7 @@ set the pod's `terminationGracePeriodSeconds` above that sum (55 s with all thre
 | Topic | Direction | Consumer group | Mode switch | Notes |
 | --- | --- | --- | --- | --- |
 | `warehouse.pick-face-replenishment.events` | produced | n/a | relay | integration events; key = request id |
-| `warehouse.pick-face-replenishment.analytics` | produced | n/a | relay | the same three request events (same CloudEvents `id`) plus `ReplenishmentPolicyDeclared`; key = request id, or `<site_id>/<sku>` for the policy event |
+| `warehouse.pick-face-replenishment.analytics` | produced | `ANALYTICS_CONSUMER_GROUP` (`cmd/pfr-projector`) | relay | the same three request events (same CloudEvents `id`) plus `ReplenishmentPolicyDeclared`; key = request id, or `<site_id>/<sku>` for the policy event. Dead-letter: `warehouse.pick-face-replenishment.analytics.dlq` |
 | `warehouse.inventory.events` | consumed | value of `INVENTORY_CONSUMER_GROUP` | `INVENTORY_MODE=kafka` | acts on `BinStockLevelChanged` and `StockRelocated` only |
 | `warehouse.slotting-optimization.events` | consumed | value of `SLOTTING_CONSUMER_GROUP` | `SLOTTING_MODE=kafka` | acts on `SlotPlanApproved` only |
 | `warehouse.facility.events` | consumed | value of `LAYOUT_CONSUMER_GROUP` | `LAYOUT_MODE=kafka` | acts on `ZoneRegistered`, `LocationSlotRegistered`, `LocationSlotDecommissioned` |
