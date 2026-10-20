@@ -15,6 +15,7 @@ How `cmd/api` is deployed, started, drained, migrated and operated. Everything h
 | Artifact | State on `develop` |
 | --- | --- |
 | Dockerfile | `Dockerfile` at the repository root: digest-pinned multi-stage build of every `cmd/*` binary (`api`, `mcp`, `pfr-projector`, `pfr-reports`; the chart selects one with `command: ["/app/<name>"]`), non-root uid 1000, `ENTRYPOINT ["./api"]`, port 8080. Started without environment it exits 1 naming `DATABASE_URL`, `KAFKA_BROKERS` and the three `*_CONSUMER_GROUP` variables. Built by `docker-publish` on push to `main` |
+| Web remote image | `web/Dockerfile` + `web/nginx.conf` + `web/.dockerignore`: the `replenishment_mfe` remote as a static nginx-unprivileged image on port 8080; see [Frontend image](#frontend-image-web-remote). CI job `web` builds it and smoke-tests it |
 | Helm chart `charts/pick-face-replenishment` | present: it deploys what [ADR 0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime) requires (Postgres, Kafka, three consumers, no `*_MODE`); see [Configuration](/docs/operations/configuration#helm-chart). CI runs `charts/pick-face-replenishment/tests/*` in `chart-tests`, and `release` packages it on push to `main` |
 | `warehouse-infra` | **no entry**: no `helm-values/pick-face-replenishment.yaml`, no `terraform/dashboards/contexts/pick-face-replenishment.json`, no Kong route and no database in `terraform/services.tf` (the values that chart needs: a database Secret, `kafka.brokers`, the Kong `gatewayApi` parentRef and path `/api/pick-face-replenishment`) |
 | Kafka topics | not pre-created by the repo and declared by no infrastructure: the cluster broker auto-creates every topic on first write (fleet convention, [ADR 0006 Amendment 1](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime)); the relay writer and the dead-letter writer set `AllowAutoTopicCreation` |
@@ -59,6 +60,46 @@ On `SIGINT` or `SIGTERM` the order is fixed in `serveUntilSignal`:
 
 The worst case is the drain delay plus the 10 s HTTP bound plus 10 s for each running consumer plus 10 s for the relay, so
 set the pod's `terminationGracePeriodSeconds` above that sum (55 s with all three consumers and the default delay).
+
+## Frontend image (web remote)
+
+`web/` holds the operator UI as a Module Federation remote, not a standalone app. The files that package it:
+
+| File | Role |
+| --- | --- |
+| `web/Dockerfile` | multi-stage build: `node:22-bookworm-slim` builds `@warehouse/ui-kit` (a sibling checkout, supplied as the named BuildKit context `uikit`), then `npm ci && npm run build` for the remote, then copies `dist/` into `nginxinc/nginx-unprivileged` |
+| `web/nginx.conf` | `listen 8080`; `GET /healthz` answers `200 ok`; `remoteEntry.js` and `index.html` are `Cache-Control: no-cache`; `/assets/` is `public, max-age=31536000, immutable` (one header); unknown paths fall back to `index.html` |
+| `web/.dockerignore` | keeps the host `node_modules` and `dist` out of the build context (a macOS `node_modules` would hide the linux native bindings) |
+
+Facts a deployer needs (from `web/vite.config.ts`):
+
+| Item | Value |
+| --- | --- |
+| Federation container name | `replenishment_mfe` |
+| Exposed module | `./App` |
+| Entry file | `remoteEntry.js` |
+| Public base path (build) | `/mfes/pick-face-replenishment/` |
+| Container port | `8080` |
+| Dev / preview port | `5196` (slotting-optimization holds 5194, task-interleaving 5197) |
+| Image build context | `web/` with `--build-context uikit=<path to warehouse-ui-kit>` |
+| Chart component | `frontend` (`frontend.enabled`, default `false`; image `warehouse/pick-face-replenishment-frontend`) |
+
+Build and check it locally from the repository root:
+
+```bash
+docker build --build-context uikit=../warehouse-ui-kit \
+  -t warehouse/pick-face-replenishment-frontend:local web
+docker run --rm -p 18196:8080 warehouse/pick-face-replenishment-frontend:local
+curl -s localhost:18196/healthz                                           # ok
+curl -s -o /dev/null -w '%{http_code}\n' localhost:18196/remoteEntry.js   # 200
+```
+
+The Nginx web gateway of `warehouse-infra` strips the `/mfes/pick-face-replenishment` prefix before proxying to the pod,
+so the pod itself sees root-relative paths. The pod serves static bytes only: the SPA reaches the REST API at
+`${apiOrigin}/api/pick-face-replenishment`, with `apiOrigin` read at runtime from the console's `/config.json`
+([Configuration](/docs/operations/configuration#web)). Kong never serves these assets. The CI job `web` runs lint,
+`tsc -b`, the vitest suite and the production build, then builds this image and requests `/healthz` and
+`remoteEntry.js` from it.
 
 ## Migrations
 
