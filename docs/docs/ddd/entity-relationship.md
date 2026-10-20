@@ -8,7 +8,7 @@ sidebar_position: 18
 # Entity-relationship diagram
 
 The OLTP schema created by `migrations/0001_replenishment_schema.up.sql` and
-`migrations/0002_forward_assignment_maps.up.sql`. The schema declares **no foreign keys**: the relations drawn below are
+`migrations/0002_forward_assignment_maps.up.sql`, plus the separate [analytics database](#analytics-database). The schema declares **no foreign keys**: the relations drawn below are
 logical, joined at read time, so rows of the event-fed copies may arrive in any order.
 
 ```mermaid
@@ -123,4 +123,63 @@ Source: `migrations/0001_replenishment_schema.up.sql`, `migrations/0002_forward_
 | `outbox_events` | transactional outbox | the events sink, drained by the relay | unique `(event_id, topic)`; partial index on unpublished rows; `attempts` and `last_error` |
 | `idempotency_keys` | `Idempotency-Key` answers | the HTTP middleware | only 2xx and 4xx answers; first writer wins |
 
-Text keys compared or ordered in Go use the `"C"` collation so database order equals the in-memory adapters' byte order.
+Text keys compared or ordered in Go use the `"C"` collation so database order equals the byte order of the in-memory
+test doubles under `internal/adapters/outbound/memory` (contract tests only: nothing in `cmd/` wires them).
+
+## OLTP migration range
+
+The OLTP database (`DATABASE_URL`) has two migrations, `0001_replenishment_schema` and `0002_forward_assignment_maps`,
+embedded from `migrations/` and applied by `cmd/api` at boot (see the [runbook](../operations/runbook.md)).
+
+## Analytics database
+
+The analytics projector and reports binaries (ADR 0008) use a SEPARATE database, `ANALYTICS_DATABASE_URL`, with its own
+golang-migrate set embedded from `analytics/migrations/` (one migration, `0001_replenishment_funnel`). `cmd/pfr-projector`
+applies it at boot and is the only writer; `cmd/pfr-reports` opens it through a read-only pool. Every row is a projection of
+the `warehouse.pick-face-replenishment.analytics` topic, not a source of truth: the database can be dropped and rebuilt by
+replaying the topic under a new consumer group. Like the OLTP schema it declares no foreign keys.
+
+```mermaid
+erDiagram
+    analytics_processed_events {
+        text event_id PK
+        text event_type
+        timestamptz occurred_at
+        timestamptz applied_at
+    }
+    replenishment_facts {
+        text request_id PK
+        text site_id
+        text sku
+        text priority
+        bigint requested_quantity
+        bigint completed_quantity
+        text cancel_reason
+        timestamptz requested_at
+        timestamptz completed_at
+        timestamptz cancelled_at
+    }
+    policy_declaration_facts {
+        text site_id PK
+        text sku PK
+        bigint version PK
+        bigint min_qty
+        bigint max_qty
+        bigint multiple
+        timestamptz declared_at
+    }
+```
+
+Source: `analytics/migrations/0001_replenishment_funnel.up.sql`; writes in
+`internal/adapters/outbound/analyticsstore/postgres_projection.go`.
+
+| Table | Fed by | Written how | Notes |
+| --- | --- | --- | --- |
+| `analytics_processed_events` | every applied analytics event | `INSERT ... ON CONFLICT (event_id) DO NOTHING` in the same transaction as the effect | dedupe on the CloudEvents `id`; `occurred_at` is the CloudEvents `time`, and `max(occurred_at)` is the freshness the reports endpoint returns; indexed on `occurred_at` |
+| `replenishment_facts` | `ReplenishmentRequested`, `ReplenishmentCompleted`, `ReplenishmentCancelled` | upsert per `request_id`: each milestone column keeps the earliest time (`LEAST`), each descriptive column its first non-NULL value (`COALESCE`) | one row per request seen; open from `requested_at` until `completed_at` or `cancelled_at`; completion latency exists only when both ends were seen; partial indexes on each milestone column and an index on `site_id` |
+| `policy_declaration_facts` | `ReplenishmentPolicyDeclared` (analytics topic only) | upsert per `(site_id, sku, version)` keeping the earliest `declared_at` | one row per declared policy version; indexed on `declared_at` |
+
+The funnel report counts its per-day numbers from these rows over the requested window
+(`internal/adapters/outbound/analyticsstore/postgres_report.go`). The in-memory twin
+`internal/adapters/outbound/analyticsstore/memory_store.go` mirrors the same semantics for the shared contract test and is
+never wired by `cmd/`.

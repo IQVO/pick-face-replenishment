@@ -60,9 +60,8 @@ work), fulfillment-execution, inventory-storage (`RelocateStock`) and back as `S
 task (its ADR 0041), fulfillment-execution creates, announces and completes `REPLENISH` tasks (its ADR 0050),
 wes-work-planning consumes `ReplenishmentRequested` and plans one `REPLENISH` work unit per request id, releasing it with
 a `replenishment` object on `WorkReleased` (its ADR 0042), and process-path-management declares the `REPLENISH` path (its
-ADR 0036). The chain is therefore built end to end on `develop`, but it is not live: nothing is deployed,
-`warehouse-infra` has no entry for this service and sets no `REPLENISHMENT_MODE`, so wes-work-planning's consumer (off by
-default) plans nothing, and until the `REPLENISH` path is seeded in a cluster wes-work-planning dead-letters the requests.
+ADR 0036). The chain is therefore built end to end on `develop`. In `warehouse-infra` this service is registered and
+wes-work-planning has `REPLENISHMENT_MODE=kafka` (cluster state was not checked), but until the `REPLENISH` path is seeded in a cluster wes-work-planning dead-letters the requests.
 The per-edge table is on [Integration](/docs/ecosystem/integration).
 
 ## Where to go next

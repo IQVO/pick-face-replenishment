@@ -76,10 +76,10 @@ Source: `cmd/api/main.go`, `cmd/api/adapters.go`, `cmd/api/consumers.go`, `cmd/a
 
 ## Wiring
 
-`cmd/api/adapters.go` picks the adapters: with `DATABASE_URL` it runs the embedded migrations (against
+`cmd/api/adapters.go` builds the adapters: it runs the embedded migrations (against
 `MIGRATIONS_DATABASE_URL` when set), opens a pgx pool and wires the Postgres repositories, the outbox repository and the
-`Idempotency-Key` middleware; without it everything is in memory, there is no outbox relay and the header is not
-enforced. Use cases are built once and shared: the HTTP handlers, the consumers and the sweep all go through the same
+`Idempotency-Key` middleware. `DATABASE_URL` is mandatory ([ADR 0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime)):
+there is no in-memory mode and the `memory` package is a test double only. Use cases are built once and shared: the HTTP handlers, the consumers and the sweep all go through the same
 `Evaluator`, so they cannot disagree about when a request is raised.
 
 Every write runs in one `UnitOfWork`: load, apply the aggregate command, save guarded by the loaded version, and hand

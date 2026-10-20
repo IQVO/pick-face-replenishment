@@ -17,11 +17,12 @@ How `cmd/api` is deployed, started, drained, migrated and operated. Everything h
 | Dockerfile | `Dockerfile` at the repository root: digest-pinned multi-stage build of every `cmd/*` binary (`api`, `mcp`, `pfr-projector`, `pfr-reports`; the chart selects one with `command: ["/app/<name>"]`), non-root uid 1000, `ENTRYPOINT ["./api"]`, port 8080. Started without environment it exits 1 naming `DATABASE_URL`, `KAFKA_BROKERS` and the three `*_CONSUMER_GROUP` variables. Built by `docker-publish` on push to `main` |
 | Web remote image | `web/Dockerfile` + `web/nginx.conf` + `web/.dockerignore`: the `replenishment_mfe` remote as a static nginx-unprivileged image on port 8080; see [Frontend image](#frontend-image-web-remote). CI job `web` builds it and smoke-tests it |
 | Helm chart `charts/pick-face-replenishment` | present: it deploys what [ADR 0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime) requires (Postgres, Kafka, three consumers, no `*_MODE`); see [Configuration](/docs/operations/configuration#helm-chart). CI runs `charts/pick-face-replenishment/tests/*` in `chart-tests`, and `release` packages it on push to `main` |
-| `warehouse-infra` | **no entry**: no `helm-values/pick-face-replenishment.yaml`, no `terraform/dashboards/contexts/pick-face-replenishment.json`, no Kong route and no database in `terraform/services.tf` (the values that chart needs: a database Secret, `kafka.brokers`, the Kong `gatewayApi` parentRef and path `/api/pick-face-replenishment`) |
+| `warehouse-infra` | **registered, API and consumers only** (`origin/develop`): `terraform/apps.yaml` has `pick-face-replenishment` (`kind: service`, `database: true`; no `analytics`, no `frontend_remote`), `helm-values/pick-face-replenishment.yaml` sets the three consumer groups (`pick-face-replenishment-inventory`, `-slotting`, `-layout`) and a Gateway API route `/api/pick-face-replenishment` (Kong strips the prefix), and `terraform/dashboards/contexts/pick-face-replenishment.json` plus alert rules exist. The values file has no `mcp`, `analytics` or `frontend` block, so the MCP server, `pfr-projector`, `pfr-reports` and the web remote are **not deployed** (off by default in the chart). Cluster state was not checked |
 | Kafka topics | not pre-created by the repo and declared by no infrastructure: the cluster broker auto-creates every topic on first write (fleet convention, [ADR 0006 Amendment 1](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime)); the relay writer and the dead-letter writer set `AllowAutoTopicCreation` |
 
-The image and the chart exist; what is missing is the `warehouse-infra` entry, so the service is not part of the kind
-cluster yet. The sections below describe what any deployment must provide.
+The image, the chart and the `warehouse-infra` entry for `cmd/api` exist. What `warehouse-infra` does not yet wire
+(MCP, analytics pair, web remote) is the subject of the infra PR in flight (`feat/wire-wms-gap-components`); until it
+merges, those three components are built but unused. The sections below describe what any deployment must provide.
 
 ## What a deployment needs
 

@@ -21,9 +21,12 @@ watch the service with it.
 | OTLP exporter variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, ...) | not read: the SDK is not wired |
 | Go runtime metrics, HTTP server duration | not emitted |
 
-Consequence: there are no service metrics to scrape, no Grafana dashboard for this service in `warehouse-infra`
-(`terraform/dashboards/contexts/` has none for it) and no alert rule. The state of the service has to be read from logs,
-the database and Kafka itself (see [Suggested alerts](#suggested-alerts)).
+Consequence: there are no service metrics to scrape from `cmd/api`. `warehouse-infra` (`origin/develop`) does ship a Grafana
+dashboard (`terraform/dashboards/contexts/pick-face-replenishment.json`) and Kong-based alert rules (5xx ratio, availability
+and latency SLO burn, container restarts), but they read Kong's `kong_http_requests_total` and latency histograms and
+kube restarts; the panels that query `http_server_request_duration_seconds` or the Go runtime metrics stay empty for `cmd/api`
+(it emits neither) and fill only for the analytics binaries once they are deployed. The state of the service has to be read
+from logs, the database and Kafka itself (see [Suggested alerts](#suggested-alerts)).
 
 ## Traces
 
@@ -98,7 +101,7 @@ Domain rejections (4xx) are not logged at all; they are visible only in the resp
 
 ## Suggested alerts
 
-None exist in `warehouse-infra`. Because the service exports no metrics, these are checks against its data stores and
+`warehouse-infra` has only the Kong-level alerts named above (5xx ratio, SLO burn, restarts). Because `cmd/api` exports no metrics, these are checks against its data stores and
 logs rather than PromQL:
 
 | Signal | Query or source | Why |

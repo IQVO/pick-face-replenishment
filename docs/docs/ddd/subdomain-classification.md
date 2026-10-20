@@ -36,7 +36,7 @@ Copied from the fleet table in warehouse-docs (`origin/main`), not from memory:
 | `facility-layout` | Generic | `wms` | upstream: zones and location slots |
 | `wes-work-planning` | Core | `wes` | downstream, built and opt-in: plans one `REPLENISH` work unit per `ReplenishmentRequested` (its ADR 0042; consumer starts only with `REPLENISHMENT_MODE=kafka`) and releases it with a `replenishment` object |
 | `fulfillment-execution` | Core | `wes` | downstream, built: runs the `REPLENISH` task from `WorkReleased.data.replenishment` (its ADR 0050) |
-| `warehouse-ops-agent` | Supporting | `wes` | planned REST reader |
+| `warehouse-ops-agent` | Supporting | `wes` | planned REST reader (not built: warehouse-ops-agent `origin/develop` has no reference to this context) |
 
 The tier (`wms`, `wes`) groups contexts by where they sit in the platform; it is not the Core/Supporting/Generic
 classification. `task-interleaving`, created the same day, is Supporting in the `wes` tier and has no edge to this
