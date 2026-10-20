@@ -26,7 +26,7 @@ which has no state.
 | Throughput | low: created by detection, closed once |
 | Size | small: about 17 fields, no collections |
 | Concurrency | optimistic: every UPDATE is `WHERE version = <loaded>`; a mismatch is `concurrent-modification`. The partial unique index decides racing creators. |
-| Repository | `ports.RequestRepo` (Postgres table `replenishment_requests`, in-memory adapter) |
+| Repository | `ports.RequestRepo` (Postgres table `replenishment_requests`; an in-memory test double exists for unit tests only) |
 
 ## ReplenishmentPolicy (`internal/domain/policy`)
 

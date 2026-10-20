@@ -43,7 +43,7 @@ flowchart LR
 
 Source: `internal/adapters/inbound/http/server.go`, `internal/adapters/inbound/kafka/*_consumer.go`,
 `internal/adapters/outbound/events/encoder.go`, ADR 0001 canvas. Dashed boxes are edges with no consumer or caller yet. A
-solid box is built on `develop`, not deployed.
+solid box is built on `develop`; deployment state is on [Integration](/docs/ecosystem/integration).
 
 ## Name
 
@@ -117,8 +117,8 @@ multiple), request, projected level, priority, source bin policy, usable stock.
 - The execution chain is built end to end on `develop`: wes-work-planning plans one `REPLENISH` work unit per
   `ReplenishmentRequested` (its ADR 0042; started only with `REPLENISHMENT_MODE=kafka`), process-path-management declares
   the `REPLENISH` path (its ADR 0036), fulfillment-execution runs the `REPLENISH` task (its ADR 0050) and
-  inventory-storage records a relocation with reason `REPLENISHMENT` (its ADR 0041). The chain is not live: nothing is
-  deployed and `warehouse-infra` sets no `REPLENISHMENT_MODE`.
+  inventory-storage records a relocation with reason `REPLENISHMENT` (its ADR 0041). In `warehouse-infra` the service is
+  registered and wes-work-planning has `REPLENISHMENT_MODE=kafka`; cluster state was not checked.
 
 ## Verification metrics
 
@@ -134,7 +134,7 @@ metrics ([Observability](/docs/operations/observability)).
   `REPLENISH` task (its ADR 0050) (ADR 0001, 0003). What remains is operational: the wes-work-planning consumer is off
   unless `REPLENISHMENT_MODE=kafka` with `REPLENISHMENT_CONSUMER_GROUP` is set (the default `permissive` consumes
   nothing), the `REPLENISH` path has to be seeded with `scripts/seed_catalogue.py` (until then wes-work-planning
-  dead-letters the requests), and `warehouse-infra` has no entry for this service and sets no `REPLENISHMENT_MODE`.
+  dead-letters the requests), and `warehouse-infra` sets `REPLENISHMENT_MODE=kafka` (so the consumer is on there) but does not seed the path.
 - slotting-optimization's relocation consumer acts only on reason `SLOTTING` and counts every other reason, including
   `REPLENISHMENT`, as unmatched (`internal/application/usecases/record_relocation.go`), so the clash ADR 0003 records
   no longer exists.
