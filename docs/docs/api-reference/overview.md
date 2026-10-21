@@ -10,7 +10,7 @@ sidebar_position: 1
 
 | Interface | Source of truth | Notes |
 | --- | --- | --- |
-| REST | `apis/openapi.yaml` (OpenAPI 3.0.3, version 1.0.0) | The pages under *REST* are generated from the spec with `npm run gen-api-docs`; do not edit them by hand. Servers declared in the spec: `http://localhost:8080` (local) and `http://localhost:8000/api/pick-face-replenishment` (Kong in the kind cluster). `warehouse-infra` on `develop` has no values file, route or dashboard for this service yet, so the Kong address is a declaration, not a live route. |
+| REST | `apis/openapi.yaml` (OpenAPI 3.0.3, version 1.0.0) | The pages under *REST* are generated from the spec with `npm run gen-api-docs`; do not edit them by hand. Servers declared in the spec: `http://localhost:8080` (local) and `http://localhost:8000/api/pick-face-replenishment` (Kong in the kind cluster). `warehouse-infra` on `develop` routes the API through Kong at that address (`helm-values/pick-face-replenishment.yaml`, `gatewayApi`); the reports Service has no route. |
 | Events | `apis/asyncapi.yaml` | Summarised on the [event catalogue](/docs/api-reference/events); every field on [Domain events](/docs/ddd/domain-events). |
 | Reports | `apis/openapi.yaml` (tag *Reports*) | `GET /reports/replenishment-funnel` and `GET /reports/freshness`, served by `cmd/pfr-reports` on `http://localhost:8092` (ADR 0008), not by `cmd/api`. |
 | MCP | `internal/adapters/inbound/mcp` (ADR 0007) | `cmd/mcp`, Streamable HTTP on `:8090` at `/mcp`: read-only tools `list_policies`, `get_policy`, `list_pick_faces`, `list_replenishments`, `get_replenishment`. Writes stay on REST. |

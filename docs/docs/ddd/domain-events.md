@@ -40,8 +40,8 @@ payload change would be a new `.v2` type and dataschema, never a mutation of v1.
 
 Consumers of the published events: wes-work-planning reads `ReplenishmentRequested` and `ReplenishmentCancelled` from
 `warehouse.pick-face-replenishment.events` when `REPLENISHMENT_MODE=kafka` (its ADR 0042; it ignores
-`ReplenishmentCompleted`, and the default `permissive` consumes nothing). Nothing is deployed, so none runs today; the
-analytics topic is read by no repository - see [Integration](/docs/ecosystem/integration).
+`ReplenishmentCompleted`, and the default `permissive` consumes nothing); `warehouse-infra` sets it on wes-work-planning. The
+analytics topic is read only by this repository's `cmd/pfr-projector` (ADR 0008), which `warehouse-infra` does not deploy - see [Integration](/docs/ecosystem/integration).
 
 ## Consumed
 

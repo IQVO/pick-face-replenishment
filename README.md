@@ -27,8 +27,11 @@ The execution chain after `ReplenishmentRequested` is built end to end on `devel
 `REPLENISH` work unit per request (its ADR 0042, consumer opt-in with `REPLENISHMENT_MODE=kafka`),
 process-path-management declares the `REPLENISH` path (its ADR 0036, seeded per cluster), fulfillment-execution runs the
 `REPLENISH` task (its ADR 0050), and inventory-storage applies the completed task as a `StockRelocated` with reason
-`REPLENISHMENT` (its ADR 0041). It is not live: nothing is deployed and `warehouse-infra` sets no `REPLENISHMENT_MODE`;
-see [Integration](docs/docs/ecosystem/integration.md).
+`REPLENISHMENT` (its ADR 0041). In `warehouse-infra` (`origin/develop`) the API and its three consumers are registered,
+and wes-work-planning's `helm-values` set `REPLENISHMENT_MODE=kafka` (group `wes-work-planning-replenishment`); the
+`REPLENISH` path is still an operator seed step (process-path-management `seed_catalogue.py`, post-deploy seed 1) and
+this repository's MCP server, analytics pair and web remote are not wired there. Cluster state was not checked; see
+[Integration](docs/docs/ecosystem/integration.md).
 
 ## Run it
 

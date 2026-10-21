@@ -10,7 +10,7 @@ sidebar_position: 15
 The key business scenarios as numbered command, event and query flows, following ddd-crew
 [Domain Message Flow Modelling](https://github.com/ddd-crew/domain-message-flow-modelling). Edges that exist on `develop`
 are solid arrows; a dashed arrow marks a step whose producer or consumer is not built. Built does not mean deployed:
-nothing runs in `warehouse-infra` for this service.
+`warehouse-infra` runs the API and its consumers but not this service's MCP server, analytics pair or web remote.
 
 ## 1. Keep the local copies current
 
@@ -84,8 +84,8 @@ Source: ADR 0001 context map, `internal/application/usecases/apply_relocation.go
 `internal/adapters/inbound/kafka/replenishment_consumer.go`; process-path-management ADR 0036 and `catalogue/paths.json`;
 fulfillment-execution ADR 0050 and `apis/asyncapi.yaml` (`TaskAvailable`, `TaskCompleted.request_ref`);
 inventory-storage ADR 0040 and 0041 and `apis/asyncapi.yaml`, all on `origin/develop`. Every step exists on `develop`, but
-the flow is not live: nothing is deployed, `warehouse-infra` sets no `REPLENISHMENT_MODE` (so wes-work-planning's
-consumer, off by default, plans nothing), and until the `REPLENISH` path is seeded in a cluster wes-work-planning
+the flow's infra switches are set (`warehouse-infra` registers this service and sets `REPLENISHMENT_MODE=kafka` on
+wes-work-planning; cluster state was not checked), and until the `REPLENISH` path is seeded in a cluster wes-work-planning
 dead-letters the requests.
 
 ## 4. A new slot plan changes the forward map

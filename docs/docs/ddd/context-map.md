@@ -9,7 +9,9 @@ sidebar_position: 13
 
 This context's slice of the fleet map, following ddd-crew [Context Mapping](https://github.com/ddd-crew/context-mapping).
 Solid edges exist as a producer and a consumer; dotted edges lack a producer or a consumer on `develop`. Solid does not
-mean live: nothing is deployed, and `warehouse-infra` has no entry for this service and sets no `REPLENISHMENT_MODE`.
+mean live: `warehouse-infra` registers this service (API, three consumers, Kong route) and sets wes-work-planning's
+`REPLENISHMENT_MODE=kafka` on `origin/develop`, but cluster state was not checked and the MCP server, analytics pair and
+web remote are not wired there.
 Relationship patterns are the ones ADR 0001 decides. The ADR's producer changes P1 (`BinStockLevelChanged`), P3 and P3b
 (`REPLENISH` work in wes-work-planning, its ADR 0042) and P4 (reason `REPLENISHMENT`) are built, together with the
 `REPLENISH` path in process-path-management (its ADR 0036) and the `REPLENISH` task in fulfillment-execution (its ADR
@@ -51,7 +53,7 @@ Omits: contexts with no edge to this one. Classifications are the fleet table's.
 | process-path-management to wes-work-planning | Published Language (catalogue replay on `warehouse.process-path-management.events`) | Kafka | **declared, seeding is an operator step**: `catalogue/paths.json` has `REPLENISH` (`matchPrefix` `replenish`, capability `replenish`, intake `REPLENISHMENT`), applied by `scripts/seed_catalogue.py` (process-path-management ADR 0036). Until it is seeded in a cluster, requests are dead-lettered (wes-work-planning ADR 0042) |
 | wes-work-planning to fulfillment-execution | `WorkReleased` carries an additive `replenishment` object and creates a `REPLENISH` task | Kafka | **built and published** (P3): wes-work-planning releases the object (its ADR 0042), and fulfillment-execution creates the `REPLENISH` task from `WorkReleased.data.replenishment` (its ADR 0050) |
 | fulfillment-execution to inventory-storage | `TaskCompleted` of a `REPLENISH` task (with `request_ref`) is applied as a relocation with reason `REPLENISHMENT` and `source_ref` = the request id | Kafka `warehouse.fulfillment.events` | **built and published** (P4): fulfillment-execution announces the task on `TaskAvailable` and publishes `TaskCompleted` with `request_ref` (ADR 0050); inventory-storage applies it as `StockRelocated` (its ADR 0041) |
-| this to ops agent, console | Open Host Service | REST, `apis/openapi.yaml` | no caller yet; no Kong route in `warehouse-infra` |
+| this to ops agent, console | Open Host Service | REST, `apis/openapi.yaml` | no caller yet (warehouse-ops-agent `origin/develop` has no pick-face client); the API has a Kong route in `warehouse-infra`, the console remote is registered in the console but has no `frontend_remote` in `terraform/apps.yaml` (wired-but-unused) |
 
 Rule of the map: **no live REST or MCP call between contexts**. Every edge is an event, and this context's copies of
 other contexts' data are rebuilt from the topics.

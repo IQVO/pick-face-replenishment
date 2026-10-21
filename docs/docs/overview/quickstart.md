@@ -169,8 +169,9 @@ pointing at the shared broker.
   `AllowAutoTopicCreation`, so the cluster broker creates them on the first write (the local compose file pre-creates
   them); `/readyz` does not wait for them.
 - The service has a `Dockerfile` and a Helm chart (`charts/pick-face-replenishment`, see
-  [Configuration](/docs/operations/configuration#helm-chart)) but no `warehouse-infra` entry on `develop` yet, so it is
-  not part of the kind cluster ([Runbook](/docs/operations/runbook#deployment-status)).
+  [Configuration](/docs/operations/configuration#helm-chart)) and a `warehouse-infra` entry for `cmd/api` (database, three
+  consumer groups, Kong route `/api/pick-face-replenishment`); the MCP server, analytics pair and web remote are not wired
+  there ([Runbook](/docs/operations/runbook#deployment-status)).
 
 ## Build this documentation
 
