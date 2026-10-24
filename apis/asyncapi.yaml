@@ -127,6 +127,23 @@ channels:
           - $ref: "#/components/messages/ReplenishmentCancelledAnalytics"
           - $ref: "#/components/messages/ReplenishmentPolicyDeclared"
 
+  warehouse.product-master.events:
+    description: |
+      product-master's integration topic. Consumed for `ProductPackLevelDeclared`
+      and `ProductPackLevelRetired` (packaging view: the eaches factor per pack
+      level that min/max and request quantities are converted with), consumer
+      group from env `PRODUCT_MASTER_CONSUMER_GROUP`.
+    publish:
+      operationId: applyProductMasterPackLevel
+      summary: Apply product-master pack-level facts to the local packaging copy.
+      description: |
+        Upserts the packaging view in one transaction with the CloudEvents `id`
+        claim; unknown types on the topic are skipped.
+      message:
+        oneOf:
+          - $ref: "#/components/messages/ProductPackLevelDeclared"
+          - $ref: "#/components/messages/ProductPackLevelRetired"
+
   warehouse.inventory.events:
     description: |
       inventory-storage's integration topic. This service consumes
@@ -237,6 +254,7 @@ components:
               requested_at: "2026-10-17T09:30:00Z"
 
     ReplenishmentCompleted:
+      x-no-consumer-reason: "ledger mirror of inventory-storage's StockRelocated; consumed on demand"
       name: ReplenishmentCompleted
       title: Replenishment completed
       summary: The relocation of a request was recorded on the stock ledger.
@@ -658,7 +676,73 @@ components:
               occurredAt: "2026-10-01T08:00:00Z"
               locationCode: "WH1-RSV-A07-03-03-B"
 
+    ProductPackLevelDeclared:
+      name: ProductPackLevelDeclared
+      title: product-master ProductPackLevelDeclared (consumed)
+      summary: A pack level (EACH, INNER, CASE or PALLET) of a SKU was declared, or one of its mutable attributes changed.
+      description: |
+        `type` = `com.warehouse.wms.product-master.product.ProductPackLevelDeclared`,
+        source `/warehouse/product-master`, dataschema
+        `urn:warehouse:product-master:events:ProductPackLevelDeclared:v1`; subject and
+        key = the SKU. Produced by product-master; consumed into the local
+        packaging view (pack level -> eaches factor for case-level scans).
+      contentType: application/cloudevents+json
+      tags:
+        - name: consumed
+      payload:
+        $ref: "#/components/schemas/ProductPackLevelDeclaredEvent"
+    ProductPackLevelRetired:
+      name: ProductPackLevelRetired
+      title: product-master ProductPackLevelRetired (consumed)
+      summary: A pack level of a SKU was retired.
+      description: |
+        `type` = `com.warehouse.wms.product-master.product.ProductPackLevelRetired`,
+        source `/warehouse/product-master`, dataschema
+        `urn:warehouse:product-master:events:ProductPackLevelRetired:v1`; subject and
+        key = the SKU. Produced by product-master; consumed into the local
+        packaging view (retired levels are no longer valid scan targets).
+      contentType: application/cloudevents+json
+      tags:
+        - name: consumed
+      payload:
+        $ref: "#/components/schemas/ProductPackLevelRetiredEvent"
   schemas:
+
+    ProductPackLevelDeclaredEvent:
+      allOf:
+        - $ref: "#/components/schemas/CloudEventEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [sku, level, gtin, units_per_pack, is_orderable, is_despatch_unit, effective_from, version]
+              properties:
+                sku: { type: string }
+                level: { type: string, enum: [EACH, INNER, CASE, PALLET] }
+                gtin: { type: string, pattern: '^[0-9]{14}$' }
+                child_gtin: { type: string, pattern: '^[0-9]{14}$' }
+                qty_of_child: { type: integer, minimum: 2, maximum: 1000000, description: Absent for EACH. }
+                units_per_pack: { type: integer, minimum: 1, maximum: 1000000, description: Direct factor to eaches; 1 for EACH. }
+                is_orderable: { type: boolean }
+                is_despatch_unit: { type: boolean }
+                effective_from: { type: string, format: date-time }
+                version: { type: integer, minimum: 1 }
+    ProductPackLevelRetiredEvent:
+      allOf:
+        - $ref: "#/components/schemas/CloudEventEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [sku, level, gtin, effective_to, reason, version]
+              properties:
+                sku: { type: string }
+                level: { type: string, enum: [EACH, INNER, CASE, PALLET] }
+                gtin: { type: string, pattern: '^[0-9]{14}$' }
+                effective_to: { type: string, format: date-time }
+                reason: { type: string, minLength: 1, maxLength: 200 }
+                version: { type: integer, minimum: 1 }
+
     CloudEventEnvelope:
       type: object
       required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
