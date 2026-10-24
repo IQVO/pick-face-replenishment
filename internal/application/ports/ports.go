@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/claudioed/pick-face-replenishment/internal/application/repository"
+	"github.com/claudioed/pick-face-replenishment/internal/domain/packlevel"
 	"github.com/claudioed/pick-face-replenishment/internal/domain/policy"
 	"github.com/claudioed/pick-face-replenishment/internal/domain/replenishment"
 )
@@ -95,6 +96,17 @@ type PickFaceReadModel interface {
 	// DecommissionLocation retires a location for good (also when it was
 	// never seen).
 	DecommissionLocation(ctx context.Context, code string) error
+}
+
+// PackLevelView is the event-fed local copy of product-master's pack levels
+// (ADR 0009), one row per (SKU, level). It is how a PACK_DERIVED policy finds
+// the units per case of its SKU without a live lookup. Inside a UnitOfWork it
+// joins the transaction carried in ctx.
+type PackLevelView interface {
+	// Get returns the stored level of the SKU; false when it was never seen.
+	Get(ctx context.Context, sku string, level packlevel.Level) (packlevel.PackLevel, bool, error)
+	// Save upserts the level (the caller decided it supersedes the stored one).
+	Save(ctx context.Context, l packlevel.PackLevel) error
 }
 
 // EventSink is the write side of the transactional outbox, in domain terms.

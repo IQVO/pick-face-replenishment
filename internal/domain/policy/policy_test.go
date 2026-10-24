@@ -41,7 +41,7 @@ func TestNewValidates(t *testing.T) {
 				}
 				return
 			}
-			want := policy.Policy{SiteID: tc.site, SKU: tc.sku, MinQty: tc.min, MaxQty: tc.max, Multiple: tc.multiple, Version: 1}
+			want := policy.Policy{SiteID: tc.site, SKU: tc.sku, MinQty: tc.min, MaxQty: tc.max, Multiple: tc.multiple, Version: 1, Source: policy.SourceDeclared}
 			if p != want {
 				t.Fatalf("policy = %+v, want %+v", p, want)
 			}
@@ -93,7 +93,7 @@ func TestWithBoundsBumpsTheVersionAndLeavesTheReceiver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithBounds: %v", err)
 	}
-	want := policy.Policy{SiteID: "WH1", SKU: "SKU-1", MinQty: 5, MaxQty: 100, Multiple: 10, Version: 2}
+	want := policy.Policy{SiteID: "WH1", SKU: "SKU-1", MinQty: 5, MaxQty: 100, Multiple: 10, Version: 2, Source: policy.SourceDeclared}
 	if q != want {
 		t.Fatalf("got %+v, want %+v", q, want)
 	}
@@ -184,7 +184,7 @@ func TestDeclarationCarriesThePolicyAtTheGivenUTCInstant(t *testing.T) {
 	at := time.Date(2026, 10, 17, 6, 0, 0, 0, local)
 	got := p.Declaration(at)
 	want := policy.Declaration{
-		SiteID: "WH1", SKU: "SKU-1", MinQty: 10, MaxQty: 60, Multiple: 6, Version: 3,
+		SiteID: "WH1", SKU: "SKU-1", MinQty: 10, MaxQty: 60, Multiple: 6, Version: 3, Source: policy.SourceDeclared,
 		DeclaredAt: time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC),
 	}
 	if got != want {

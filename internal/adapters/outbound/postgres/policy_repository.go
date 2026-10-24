@@ -22,7 +22,7 @@ type PolicyRepo struct {
 // NewPolicyRepo constructs a PolicyRepo over pool.
 func NewPolicyRepo(pool *pgxpool.Pool) *PolicyRepo { return &PolicyRepo{pool: pool} }
 
-const policyColumns = `site_id, sku, min_qty, max_qty, multiple, version, declared_at`
+const policyColumns = `site_id, sku, min_qty, max_qty, multiple, version, declared_at, multiple_source, stale`
 
 // Get implements ports.PolicyRepo.
 func (r *PolicyRepo) Get(ctx context.Context, siteID, sku string) (repository.PolicyRecord, error) {
@@ -46,8 +46,8 @@ func (r *PolicyRepo) Save(ctx context.Context, rec repository.PolicyRecord, load
 func (r *PolicyRepo) insert(ctx context.Context, rec repository.PolicyRecord) error {
 	p := rec.Policy
 	_, err := queryFor(ctx, r.pool).Exec(ctx, `
-		INSERT INTO policies (`+policyColumns+`) VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, p.SiteID, p.SKU, p.MinQty, p.MaxQty, p.Multiple, p.Version, rec.DeclaredAt.UTC())
+		INSERT INTO policies (`+policyColumns+`) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, p.SiteID, p.SKU, p.MinQty, p.MaxQty, p.Multiple, p.Version, rec.DeclaredAt.UTC(), string(p.Source), p.Stale)
 	if isUniqueViolation(err, "policies_pkey") {
 		return repository.ErrPolicyAlreadyExists
 	}
@@ -61,9 +61,10 @@ func (r *PolicyRepo) update(ctx context.Context, rec repository.PolicyRecord, lo
 	p := rec.Policy
 	tag, err := queryFor(ctx, r.pool).Exec(ctx, `
 		UPDATE policies
-		SET min_qty = $3, max_qty = $4, multiple = $5, version = $6, declared_at = $7
-		WHERE site_id = $1 AND sku = $2 AND version = $8
-	`, p.SiteID, p.SKU, p.MinQty, p.MaxQty, p.Multiple, p.Version, rec.DeclaredAt.UTC(), loadedVersion)
+		SET min_qty = $3, max_qty = $4, multiple = $5, version = $6, declared_at = $7,
+		    multiple_source = $8, stale = $9
+		WHERE site_id = $1 AND sku = $2 AND version = $10
+	`, p.SiteID, p.SKU, p.MinQty, p.MaxQty, p.Multiple, p.Version, rec.DeclaredAt.UTC(), string(p.Source), p.Stale, loadedVersion)
 	if err != nil {
 		return fmt.Errorf("update policy: %w", err)
 	}
@@ -127,11 +128,13 @@ func scanPolicy(row pgx.Row) (repository.PolicyRecord, error) {
 		siteID, sku                       string
 		minQty, maxQty, multiple, version int64
 		declaredAt                        time.Time
+		source                            string
+		stale                             bool
 	)
-	if err := row.Scan(&siteID, &sku, &minQty, &maxQty, &multiple, &version, &declaredAt); err != nil {
+	if err := row.Scan(&siteID, &sku, &minQty, &maxQty, &multiple, &version, &declaredAt, &source, &stale); err != nil {
 		return repository.PolicyRecord{}, err
 	}
-	p, err := policy.Restore(siteID, sku, minQty, maxQty, multiple, version)
+	p, err := policy.RestoreWith(siteID, sku, minQty, maxQty, multiple, version, policy.Source(source), stale)
 	if err != nil {
 		return repository.PolicyRecord{}, fmt.Errorf("stored policy %s/%s is invalid: %w", siteID, sku, err)
 	}

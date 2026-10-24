@@ -5,6 +5,7 @@ import (
 
 	"github.com/claudioed/pick-face-replenishment/internal/application/ports"
 	"github.com/claudioed/pick-face-replenishment/internal/application/repository"
+	"github.com/claudioed/pick-face-replenishment/internal/domain/packlevel"
 )
 
 // failRead fails the methods named in faults.
@@ -89,3 +90,12 @@ func (m *failRead) DecommissionLocation(ctx context.Context, code string) error 
 	}
 	return m.PickFaceReadModel.DecommissionLocation(ctx, code)
 }
+
+// failingView is a ports.PackLevelView whose reads fail.
+type failingView struct{ err error }
+
+func (v *failingView) Get(context.Context, string, packlevel.Level) (packlevel.PackLevel, bool, error) {
+	return packlevel.PackLevel{}, false, v.err
+}
+
+func (v *failingView) Save(context.Context, packlevel.PackLevel) error { return v.err }

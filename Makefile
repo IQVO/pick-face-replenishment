@@ -28,7 +28,7 @@ COVERAGE_THRESHOLD := 90
 # Thresholds/workers/timeout live in .gremlins.yaml so both use identical
 # settings. A new package under internal/domain/ MUST be added here AND to the
 # `mutation-fast` loop in ci.yml.
-MUTATION_FAST_PKGS := ./internal/domain/replenishment ./internal/domain/policy ./internal/domain/detection ./internal/domain/shared
+MUTATION_FAST_PKGS := ./internal/domain/replenishment ./internal/domain/policy ./internal/domain/packlevel ./internal/domain/detection ./internal/domain/shared
 # The exhaustive scheduled run — kept in sync with the `mutation` CI job.
 MUTATION_FULL_PKG  := ./internal/domain
 
