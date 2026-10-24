@@ -19,6 +19,7 @@ data:
   INVENTORY_CONSUMER_GROUP: {{ required "pick-face-replenishment requires config.inventoryConsumerGroup to be set (INVENTORY_CONSUMER_GROUP)" .Values.config.inventoryConsumerGroup | quote }}
   SLOTTING_CONSUMER_GROUP: {{ required "pick-face-replenishment requires config.slottingConsumerGroup to be set (SLOTTING_CONSUMER_GROUP)" .Values.config.slottingConsumerGroup | quote }}
   LAYOUT_CONSUMER_GROUP: {{ required "pick-face-replenishment requires config.layoutConsumerGroup to be set (LAYOUT_CONSUMER_GROUP)" .Values.config.layoutConsumerGroup | quote }}
+  PACK_LEVEL_CONSUMER_GROUP: {{ required "pick-face-replenishment requires config.packLevelConsumerGroup to be set (PACK_LEVEL_CONSUMER_GROUP)" .Values.config.packLevelConsumerGroup | quote }}
   {{- with .Values.config.forwardZoneCodes }}
   FORWARD_ZONE_CODES: {{ . | quote }}
   {{- end }}

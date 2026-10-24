@@ -40,10 +40,11 @@ env_value() { # env_value <rendered> <NAME>
 [[ "$(env_value "$deployment" KAFKA_BROKERS)" == "kafka.example.invalid:9092" ]] || fail "KAFKA_BROKERS is not rendered from kafka.brokers"
 [[ "$(env_value "$deployment" INVENTORY_CONSUMER_GROUP)" == "pick-face-replenishment-inventory" ]] || fail "INVENTORY_CONSUMER_GROUP is not rendered from config.inventoryConsumerGroup"
 [[ "$(env_value "$deployment" SLOTTING_CONSUMER_GROUP)" == "pick-face-replenishment-slotting" ]] || fail "SLOTTING_CONSUMER_GROUP is not rendered from config.slottingConsumerGroup"
+[[ "$(env_value "$deployment" PACK_LEVEL_CONSUMER_GROUP)" == "pick-face-replenishment-pack-levels" ]] || fail "PACK_LEVEL_CONSUMER_GROUP is not rendered from config.packLevelConsumerGroup"
 [[ "$(env_value "$deployment" LAYOUT_CONSUMER_GROUP)" == "pick-face-replenishment-layout" ]] || fail "LAYOUT_CONSUMER_GROUP is not rendered from config.layoutConsumerGroup"
 grep -A4 'name: DATABASE_URL$' <<<"$deployment" | grep -q 'secretKeyRef:' || fail "DATABASE_URL must come from a Secret (secretKeyRef)"
 grep -A6 'name: MIGRATIONS_DATABASE_URL$' <<<"$deployment" | grep -q 'optional: true' || fail "MIGRATIONS_DATABASE_URL must be an optional secretKeyRef"
-for var in KAFKA_BROKERS INVENTORY_CONSUMER_GROUP SLOTTING_CONSUMER_GROUP LAYOUT_CONSUMER_GROUP; do
+for var in KAFKA_BROKERS INVENTORY_CONSUMER_GROUP SLOTTING_CONSUMER_GROUP LAYOUT_CONSUMER_GROUP PACK_LEVEL_CONSUMER_GROUP; do
   grep -q "^  $var: " <<<"$configmap" || fail "the ConfigMap does not carry $var"
 done
 if grep -qE '^  (MIGRATIONS_)?DATABASE_URL:' <<<"$configmap"; then fail "a DSN must never land in the ConfigMap"; fi
@@ -126,7 +127,7 @@ binary_env() {
   for f in "$repo_dir"/cmd/api/*.go; do
     case "$f" in *_test.go) continue ;; esac
     grep -hoE '[Gg]etenv\("[A-Z][A-Z0-9_]*"' "$f" || true
-    grep -hoE '"[A-Z]+_CONSUMER_GROUP"' "$f" || true
+    grep -hoE '"[A-Z_]+_CONSUMER_GROUP"' "$f" || true
   done | sed -E 's/.*"([A-Z0-9_]+)".*/\1/' | sort -u
 }
 # Word splitting is safe: the names are [A-Z0-9_] only (bash 3.2 has no mapfile).
@@ -166,6 +167,7 @@ expect_refusal "no brokers" "kafka.brokers" --set database.url=postgres://u@h/db
 expect_refusal "an empty inventory group" "config.inventoryConsumerGroup" "${base[@]}" --set config.inventoryConsumerGroup=
 expect_refusal "an empty slotting group" "config.slottingConsumerGroup" "${base[@]}" --set config.slottingConsumerGroup=
 expect_refusal "an empty layout group" "config.layoutConsumerGroup" "${base[@]}" --set config.layoutConsumerGroup=
+expect_refusal "an empty pack-level group" "config.packLevelConsumerGroup" "${base[@]}" --set config.packLevelConsumerGroup=
 expect_refusal "a short grace period" "terminationGracePeriodSeconds" "${base[@]}" --set terminationGracePeriodSeconds=20
 expect_refusal "INVENTORY_MODE through extraEnv" "*_MODE" "${base[@]}" --set 'extraEnv[0].name=INVENTORY_MODE' --set 'extraEnv[0].value=permissive'
 expect_refusal "LAYOUT_MODE through extraEnv" "ADR 0006" "${base[@]}" --set 'extraEnv[0].name=LAYOUT_MODE' --set 'extraEnv[0].value=kafka'

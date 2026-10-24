@@ -13,6 +13,7 @@ config:
   inventoryConsumerGroup: "pick-face-replenishment-inventory"
   slottingConsumerGroup: "pick-face-replenishment-slotting"
   layoutConsumerGroup: "pick-face-replenishment-layout"
+  packLevelConsumerGroup: "pick-face-replenishment-pack-levels"
 gatewayApi:
   enabled: true
   parentRefs:

@@ -142,6 +142,7 @@ config:
   inventoryConsumerGroup: "pick-face-replenishment-inventory"   # INVENTORY_CONSUMER_GROUP (warehouse.inventory.events)
   slottingConsumerGroup: "pick-face-replenishment-slotting"     # SLOTTING_CONSUMER_GROUP (warehouse.slotting-optimization.events)
   layoutConsumerGroup: "pick-face-replenishment-layout"         # LAYOUT_CONSUMER_GROUP (warehouse.facility.events)
+  packLevelConsumerGroup: "pick-face-replenishment-pack-levels"         # PACK_LEVEL_CONSUMER_GROUP (warehouse.product-master.events)
 
 # MANDATORY: the chart refuses to render unless database.url or
 # database.existingSecret is set (templates/_helpers.tpl:
