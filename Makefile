@@ -191,5 +191,5 @@ local-down: ## stop the local Postgres + Kafka (data is kept in the pfr_postgres
 
 run-local: local-up ## run the service on the local Postgres + Kafka
 	DATABASE_URL='$(LOCAL_DATABASE_URL)' KAFKA_BROKERS='$(LOCAL_KAFKA_BROKERS)' \
-	INVENTORY_CONSUMER_GROUP=pfr-local-inventory SLOTTING_CONSUMER_GROUP=pfr-local-slotting LAYOUT_CONSUMER_GROUP=pfr-local-layout \
+	INVENTORY_CONSUMER_GROUP=pfr-local-inventory SLOTTING_CONSUMER_GROUP=pfr-local-slotting LAYOUT_CONSUMER_GROUP=pfr-local-layout PACK_LEVEL_CONSUMER_GROUP=pfr-local-pack-level \
 	$(GO) run ./cmd/api

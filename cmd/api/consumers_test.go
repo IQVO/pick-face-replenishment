@@ -8,10 +8,10 @@ import (
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 )
 
-// setConsumerEnv sets the mode and group variables of the three consumers.
+// setConsumerEnv sets the mode and group variables of the four consumers.
 func setConsumerEnv(t *testing.T, mode, group string) {
 	t.Helper()
-	for _, name := range []string{"INVENTORY", "SLOTTING", "LAYOUT"} {
+	for _, name := range []string{"INVENTORY", "SLOTTING", "LAYOUT", "PACK_LEVEL"} {
 		t.Setenv(name+"_MODE", mode)
 		t.Setenv(name+"_CONSUMER_GROUP", group)
 	}
@@ -48,7 +48,7 @@ func TestConsumerEnvsPinTheNames(t *testing.T) {
 	for _, e := range consumerEnvs {
 		got = append(got, e.modeEnv+":"+e.groupEnv)
 	}
-	want := "INVENTORY_MODE:INVENTORY_CONSUMER_GROUP,SLOTTING_MODE:SLOTTING_CONSUMER_GROUP,LAYOUT_MODE:LAYOUT_CONSUMER_GROUP"
+	want := "INVENTORY_MODE:INVENTORY_CONSUMER_GROUP,SLOTTING_MODE:SLOTTING_CONSUMER_GROUP,LAYOUT_MODE:LAYOUT_CONSUMER_GROUP,PACK_LEVEL_MODE:PACK_LEVEL_CONSUMER_GROUP"
 	if strings.Join(got, ",") != want {
 		t.Fatalf("envs = %v, want %s", got, want)
 	}
@@ -66,26 +66,27 @@ func TestEveryConsumerEnvHasABuilder(t *testing.T) {
 	}
 }
 
-func TestPlanConsumersPlansAllThreeWithoutAnyMode(t *testing.T) {
+func TestPlanConsumersPlansAllFourWithoutAnyMode(t *testing.T) {
 	setConsumerEnv(t, "", "")
 	t.Setenv("INVENTORY_CONSUMER_GROUP", "inv-g")
 	t.Setenv("SLOTTING_CONSUMER_GROUP", "slot-g")
 	t.Setenv("LAYOUT_CONSUMER_GROUP", "lay-g")
+	t.Setenv("PACK_LEVEL_CONSUMER_GROUP", "pack-g")
 	planned, err := planConsumers()
-	if err != nil || len(planned) != 3 {
-		t.Fatalf("planned = %d, %v; want the three consumers, always on", len(planned), err)
+	if err != nil || len(planned) != 4 {
+		t.Fatalf("planned = %d, %v; want the four consumers, always on", len(planned), err)
 	}
 	var groups []string
 	for _, p := range planned {
 		groups = append(groups, p.group)
 	}
-	if strings.Join(groups, ",") != "inv-g,slot-g,lay-g" {
+	if strings.Join(groups, ",") != "inv-g,slot-g,lay-g,pack-g" {
 		t.Fatalf("groups = %v", groups)
 	}
 }
 
 func TestPlanConsumersNeedsEveryGroup(t *testing.T) {
-	for _, name := range []string{"INVENTORY", "SLOTTING", "LAYOUT"} {
+	for _, name := range []string{"INVENTORY", "SLOTTING", "LAYOUT", "PACK_LEVEL"} {
 		setConsumerEnv(t, "", "g")
 		t.Setenv(name+"_CONSUMER_GROUP", "")
 		_, err := planConsumers()
@@ -114,7 +115,7 @@ func TestPlanConsumersReportsEveryProblemAtOnce(t *testing.T) {
 	if err == nil {
 		t.Fatal("misconfiguration must be a boot error")
 	}
-	for _, want := range []string{"INVENTORY_MODE=permissive", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP"} {
+	for _, want := range []string{"INVENTORY_MODE=permissive", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", "PACK_LEVEL_CONSUMER_GROUP"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q: %v", want, err)
 		}
@@ -129,6 +130,7 @@ func TestStartConsumersRunsAndStopsEveryConsumer(t *testing.T) {
 	t.Setenv("INVENTORY_CONSUMER_GROUP", "inv-g")
 	t.Setenv("SLOTTING_CONSUMER_GROUP", "slot-g")
 	t.Setenv("LAYOUT_CONSUMER_GROUP", "lay-g")
+	t.Setenv("PACK_LEVEL_CONSUMER_GROUP", "pack-g")
 	planned, err := planConsumers()
 	if err != nil {
 		t.Fatal(err)
@@ -136,8 +138,8 @@ func TestStartConsumersRunsAndStopsEveryConsumer(t *testing.T) {
 	logger, logs := quietLogger()
 
 	workers, stop := startConsumers(adapters{}, usecases.ZoneConfig{}, []string{"127.0.0.1:1"}, planned, logger)
-	if len(workers) != 3 {
-		t.Fatalf("workers = %d; want the three consumers", len(workers))
+	if len(workers) != 4 {
+		t.Fatalf("workers = %d; want the four consumers", len(workers))
 	}
 	stop()
 	for _, w := range workers {
@@ -147,7 +149,7 @@ func TestStartConsumersRunsAndStopsEveryConsumer(t *testing.T) {
 			t.Fatalf("worker %s did not stop", w.name)
 		}
 	}
-	for _, want := range []string{"inventory consumer", "slotting consumer", "layout consumer"} {
+	for _, want := range []string{"inventory consumer", "slotting consumer", "layout consumer", "product-master consumer"} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("logs lack %q:\n%s", want, logs.String())
 		}

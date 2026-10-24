@@ -1,6 +1,6 @@
 // Command api is pick-face-replenishment's composition root: it wires env
 // config into adapters, adapters into use cases, and use cases into the HTTP
-// router, the three Kafka consumers and the outbox relay. Nothing else in the
+// router, the four Kafka consumers and the outbox relay. Nothing else in the
 // module imports it.
 //
 // Postgres and Kafka are the ONLY runtime (ADR 0006): there is no in-memory
@@ -15,12 +15,15 @@
 //	DATABASE_URL              REQUIRED. Postgres DSN
 //	MIGRATIONS_DATABASE_URL   direct DSN for the boot migrations (default DATABASE_URL)
 //	KAFKA_BROKERS             REQUIRED. Comma-separated brokers
-//	INVENTORY_CONSUMER_GROUP  REQUIRED. Stable group ids of the three consumers
+//	INVENTORY_CONSUMER_GROUP  REQUIRED. Stable group ids of three consumers
 //	SLOTTING_CONSUMER_GROUP   (inventory-storage's BinStockLevelChanged and
 //	LAYOUT_CONSUMER_GROUP     StockRelocated, slotting-optimization's
 //	                          SlotPlanApproved, facility-layout's zone and
 //	                          location events; ADR 0003)
-//	INVENTORY_MODE, SLOTTING_MODE, LAYOUT_MODE
+//	PACK_LEVEL_CONSUMER_GROUP REQUIRED. Stable group id of the fourth consumer
+//	                          (product-master's ProductPackLevelDeclared and
+//	                          ProductPackLevelRetired; ADR 0009)
+//	INVENTORY_MODE, SLOTTING_MODE, LAYOUT_MODE, PACK_LEVEL_MODE
 //	                          kafka (default). permissive is REJECTED at boot:
 //	                          every consumer always runs
 //	OUTBOX_RELAY_INTERVAL     relay poll interval (Go duration or seconds, default 1s)
