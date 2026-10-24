@@ -706,21 +706,6 @@ components:
         - name: consumed
       payload:
         $ref: "#/components/schemas/ProductPackLevelRetiredEvent"
-      allOf:
-        - $ref: "#/components/schemas/CloudEventEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [sku, level, gtin, effective_to, reason, version]
-              properties:
-                sku: { type: string }
-                level: { type: string, enum: [EACH, INNER, CASE, PALLET] }
-                gtin: { type: string, pattern: '^[0-9]{14}$' }
-                effective_to: { type: string, format: date-time }
-                reason: { type: string, minLength: 1, maxLength: 200 }
-                version: { type: integer, minimum: 1 }
-
   schemas:
 
     ProductPackLevelDeclaredEvent:
@@ -743,6 +728,21 @@ components:
                 effective_from: { type: string, format: date-time }
                 version: { type: integer, minimum: 1 }
     ProductPackLevelRetiredEvent:
+      allOf:
+        - $ref: "#/components/schemas/CloudEventEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [sku, level, gtin, effective_to, reason, version]
+              properties:
+                sku: { type: string }
+                level: { type: string, enum: [EACH, INNER, CASE, PALLET] }
+                gtin: { type: string, pattern: '^[0-9]{14}$' }
+                effective_to: { type: string, format: date-time }
+                reason: { type: string, minLength: 1, maxLength: 200 }
+                version: { type: integer, minimum: 1 }
+
     CloudEventEnvelope:
       type: object
       required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
