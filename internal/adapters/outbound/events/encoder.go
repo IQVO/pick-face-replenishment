@@ -151,7 +151,7 @@ func policyFact(d policy.Declaration) fact {
 		analyticsOnly: true,
 		data: policyDeclaredData{
 			SiteID: d.SiteID, SKU: d.SKU, MinQty: d.MinQty, MaxQty: d.MaxQty, Multiple: d.Multiple,
-			MultipleSource: string(d.Source), Version: d.Version, DeclaredAt: ts(d.DeclaredAt),
+			MultipleSource: multipleSource(d.Source), Version: d.Version, DeclaredAt: ts(d.DeclaredAt),
 		},
 	}
 }
@@ -207,4 +207,14 @@ func message(f fact, id string, st stream) (outbox.Message, error) {
 		Value:      value,
 		Headers:    []outbox.Header{{Key: ct.Key, Value: string(ct.Value)}},
 	}, nil
+}
+
+// multipleSource is the optional multiple_source of ReplenishmentPolicyDeclared:
+// present only for a PACK_DERIVED policy, so a DECLARED policy's payload stays
+// byte-identical to the one published before pack-derived multiples existed.
+func multipleSource(source policy.Source) string {
+	if source == policy.SourcePackDerived {
+		return string(source)
+	}
+	return ""
 }
