@@ -738,6 +738,7 @@ components:
                 min_qty: { type: integer, minimum: 0 }
                 max_qty: { type: integer, minimum: 1 }
                 multiple: { type: integer, minimum: 1 }
+                multiple_source: { type: string, enum: [DECLARED, PACK_DERIVED], description: "Optional; absent on facts that do not say." }
                 version: { type: integer, minimum: 1 }
                 declared_at: { type: string, format: date-time }
 
