@@ -7,6 +7,7 @@ var (
 	_ ports.PolicyRepo        = (*PolicyRepo)(nil)
 	_ ports.RequestRepo       = (*RequestRepo)(nil)
 	_ ports.PickFaceReadModel = (*ReadModel)(nil)
+	_ ports.PackLevelView     = (*PackLevelView)(nil)
 	_ ports.ProcessedEvents   = (*ProcessedEventRepo)(nil)
 	_ ports.IdempotencyStore  = (*IdempotencyStore)(nil)
 	_ ports.UnitOfWork        = (*UnitOfWork)(nil)

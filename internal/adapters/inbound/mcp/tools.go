@@ -65,6 +65,8 @@ type policyView struct {
 	MinQty     int64  `json:"min_qty"`
 	MaxQty     int64  `json:"max_qty"`
 	Multiple   int64  `json:"multiple"`
+	Source     string `json:"source"`
+	Stale      bool   `json:"stale"`
 	Version    int64  `json:"version"`
 	DeclaredAt string `json:"declared_at"`
 }
@@ -130,6 +132,7 @@ func toPolicy(rec repository.PolicyRecord) policyView {
 	p := rec.Policy
 	return policyView{
 		SiteID: p.SiteID, SKU: p.SKU, MinQty: p.MinQty, MaxQty: p.MaxQty, Multiple: p.Multiple,
+		Source: string(p.Source), Stale: p.Stale,
 		Version: p.Version, DeclaredAt: instant(rec.DeclaredAt),
 	}
 }

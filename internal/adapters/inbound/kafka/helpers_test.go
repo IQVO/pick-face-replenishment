@@ -108,6 +108,7 @@ type world struct {
 	policies  *memory.PolicyRepo
 	requests  *memory.RequestRepo
 	read      *flakyRead
+	levels    *memory.PackLevelView
 	log       *memory.EventLog
 	processed *memory.ProcessedEventRepo
 	uow       *countingUoW
@@ -117,9 +118,10 @@ type world struct {
 func newWorld() *world {
 	policies, requests, read := memory.NewPolicyRepo(), memory.NewRequestRepo(), memory.NewReadModel()
 	log, processed := memory.NewEventLog(), memory.NewProcessedEventRepo()
+	levels := memory.NewPackLevelView()
 	return &world{
-		policies: policies, requests: requests, read: &flakyRead{ReadModel: read}, log: log, processed: processed,
-		uow:  &countingUoW{inner: memory.NewUnitOfWork(policies, requests, read, log, processed)},
+		policies: policies, requests: requests, read: &flakyRead{ReadModel: read}, log: log, processed: processed, levels: levels,
+		uow:  &countingUoW{inner: memory.NewUnitOfWork(policies, requests, read, log, processed, levels)},
 		logs: &logBuffer{},
 	}
 }
@@ -196,6 +198,22 @@ func layoutUseCases(w *world) kafkaconsumer.LayoutUseCases {
 		Zone:           &usecases.ApplyZone{Intake: w.intake(), Read: w.read},
 		Registered:     &usecases.ApplyLocationRegistered{Intake: w.intake(), Read: w.read},
 		Decommissioned: &usecases.ApplyLocationDecommissioned{Intake: w.intake(), Read: w.read},
+	}
+}
+
+func (w *world) packLevelUseCases() kafkaconsumer.ProductMasterUseCases {
+	derive := usecases.PackDerivation{Policies: w.policies, PackLevels: w.levels, Events: w.log, Clock: system.Clock{}}
+	return kafkaconsumer.ProductMasterUseCases{
+		Declared: &usecases.ApplyPackLevelDeclared{Intake: w.intake(), PackLevels: w.levels, Derive: derive},
+		Retired:  &usecases.ApplyPackLevelRetired{Intake: w.intake(), PackLevels: w.levels, Derive: derive},
+	}
+}
+
+func (w *world) productMasterConsumer() *kafkaconsumer.Consumer {
+	return &kafkaconsumer.Consumer{
+		Name: "product-master", Topic: kafkaconsumer.ProductMasterTopic,
+		Handlers: kafkaconsumer.ProductMasterHandlers(w.packLevelUseCases(), w.logger()),
+		Logger:   w.logger(), Retry: fastRetry,
 	}
 }
 

@@ -40,6 +40,9 @@ var (
 	// ErrNothingToReplenish: a request without a quantity was asked for a pick
 	// face that is above its minimum.
 	ErrNothingToReplenish = errors.New("the pick face is above its minimum: nothing to replenish")
+	// ErrNoActiveCaseLevel: a PACK_DERIVED policy was asked for a SKU whose
+	// local pack-level view holds no CASE level in force.
+	ErrNoActiveCaseLevel = errors.New("the sku has no active CASE pack level in the local pack-level view")
 	// ErrInvalidEvent marks a consumed message that can never be applied. It
 	// wraps the cause. The consumer logs it and commits past the message.
 	ErrInvalidEvent = errors.New("invalid event")

@@ -114,6 +114,10 @@ paths:
         value is a 409 `concurrent-modification`. The values must satisfy
         `0 <= minQty < maxQty` and `multiple >= 1` (`multiple` defaults to 1). A
         request quantity is always rounded down to a multiple of `multiple`.
+        With `source: PACK_DERIVED` the multiple is not sent: it is taken from the
+        SKU's active CASE pack level (units per case) in the local copy of
+        product-master's pack levels, and re-derived when that level is superseded;
+        a SKU with no active CASE level is a 422 `no-active-case-level`.
         Publishes `ReplenishmentPolicyDeclared` on the analytics topic. The
         response carries the new version as `ETag`.
       tags: [Policies]
@@ -153,6 +157,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "409":
           $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/InternalError"
     get:
@@ -917,6 +923,14 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
           examples:
+            noActiveCaseLevel:
+              summary: PACK_DERIVED policy for a SKU with no active CASE pack level
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/no-active-case-level
+                title: The SKU has no active CASE pack level
+                status: 422
+                detail: product-master has declared no CASE level in force for this SKU; declare one there, or declare the policy with source DECLARED
+                instance: /policies/SITE-1/SKU-1
             idempotencyKeyReused:
               summary: The Idempotency-Key was used with a different body
               value:
@@ -1034,7 +1048,17 @@ components:
           format: int64
           minimum: 1
           default: 1
-          description: A request quantity is rounded down to a multiple of this (a case or inner-pack size).
+          description: >-
+            A request quantity is rounded down to a multiple of this (a case or
+            inner-pack size). Must be omitted when `source` is `PACK_DERIVED`.
+        source:
+          type: string
+          enum: [DECLARED, PACK_DERIVED]
+          default: DECLARED
+          description: >-
+            DECLARED keeps the multiple as sent. PACK_DERIVED takes it from the
+            SKU's active CASE pack level (units per case) and re-derives it when
+            that level is superseded.
     RequestReplenishmentRequest:
       type: object
       additionalProperties: false
@@ -1067,6 +1091,8 @@ components:
         minQty: { type: integer, format: int64, minimum: 0 }
         maxQty: { type: integer, format: int64, minimum: 1 }
         multiple: { type: integer, format: int64, minimum: 1 }
+        source: { type: string, enum: [DECLARED, PACK_DERIVED], description: "Where `multiple` comes from." }
+        stale: { type: boolean, description: "PACK_DERIVED only: the CASE level it was derived from is gone and no other is in force; the last multiple still applies." }
         version: { type: integer, format: int64, minimum: 1, description: "Starts at 1, +1 per accepted change." }
         declaredAt: { type: string, format: date-time }
     PolicyPage:

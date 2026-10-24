@@ -73,6 +73,8 @@ var problemCatalogue = []struct {
 	{policy.ErrBlankSKU, problem{http.StatusBadRequest, "invalid-sku", "SKU is invalid", "sku must not be blank"}},
 	{policy.ErrInvalidBounds, invalidPolicy},
 	{policy.ErrInvalidMultiple, invalidPolicy},
+	{policy.ErrInvalidSource, problem{http.StatusBadRequest, "invalid-policy", "Policy is invalid", "source must be DECLARED or PACK_DERIVED"}},
+	{policy.ErrMultipleNotAllowed, problem{http.StatusBadRequest, "invalid-policy", "Policy is invalid", "multiple must be omitted when source is PACK_DERIVED"}},
 	{replenishment.ErrQuantityBelowOne, invalidQuantity},
 	{usecases.ErrInvalidRequestID, problem{status: http.StatusBadRequest, slug: "invalid-request-id", title: "Request id is invalid"}},
 	{usecases.ErrInvalidState, problem{status: http.StatusBadRequest, slug: "invalid-state", title: "State is invalid"}},
@@ -93,6 +95,8 @@ var problemCatalogue = []struct {
 
 	{usecases.ErrNoForwardAssignment, problem{http.StatusUnprocessableEntity, "no-forward-assignment", "The SKU has no forward pick face at this site",
 		"the site's approved slot plan assigns no forward bin to this SKU"}},
+	{usecases.ErrNoActiveCaseLevel, problem{http.StatusUnprocessableEntity, "no-active-case-level", "The SKU has no active CASE pack level",
+		"product-master has declared no CASE level in force for this SKU; declare one there, or declare the policy with source DECLARED"}},
 	{usecases.ErrNoPolicy, problem{http.StatusUnprocessableEntity, "no-policy", "The SKU has no replenishment policy at this site",
 		"declare a policy with PUT /policies/{siteId}/{sku} first"}},
 	{usecases.ErrNoSourceStock, noSourceStock},

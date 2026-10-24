@@ -26,6 +26,7 @@ The three consumers are always ON (no *_MODE is set):
   group {{ .Values.config.inventoryConsumerGroup }}  <- warehouse.inventory.events
   group {{ .Values.config.slottingConsumerGroup }}  <- warehouse.slotting-optimization.events
   group {{ .Values.config.layoutConsumerGroup }}  <- warehouse.facility.events
+  group {{ .Values.config.packLevelConsumerGroup }}  <- warehouse.product-master.events
 
 /readyz answers 503 until Postgres answers and a Kafka broker answers a
 metadata request. Topics are not checked: the relay's writer auto-creates the

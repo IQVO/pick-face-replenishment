@@ -65,7 +65,7 @@ func declareInput(r *http.Request, site, sku string) (usecases.DeclarePolicyInpu
 	if body.MinQty == nil || body.MaxQty == nil {
 		return usecases.DeclarePolicyInput{}, policy.ErrInvalidBounds
 	}
-	in := usecases.DeclarePolicyInput{SiteID: site, SKU: sku, MinQty: *body.MinQty, MaxQty: *body.MaxQty}
+	in := usecases.DeclarePolicyInput{SiteID: site, SKU: sku, MinQty: *body.MinQty, MaxQty: *body.MaxQty, Source: policy.Source(body.Source)}
 	if body.Multiple == nil {
 		return in, nil
 	}

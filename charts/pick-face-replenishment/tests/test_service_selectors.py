@@ -57,12 +57,12 @@ ENABLE_EVERYTHING = BASE + [
 # Every env var cmd/api reads that has a dedicated chart value.
 API_ENV = (
     "HTTP_ADDR", "LOG_LEVEL", "DATABASE_URL", "MIGRATIONS_DATABASE_URL", "KAFKA_BROKERS",
-    "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP",
+    "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", "PACK_LEVEL_CONSUMER_GROUP",
     "OUTBOX_RELAY_INTERVAL", "OUTBOX_MAX_ATTEMPTS", "SHUTDOWN_DRAIN_DELAY",
     "FORWARD_ZONE_CODES", "RESERVE_ZONE_CODES",
 )
 # Never rendered: they default to kafka and the binary rejects permissive.
-FORBIDDEN_ENV = ("INVENTORY_MODE", "SLOTTING_MODE", "LAYOUT_MODE")
+FORBIDDEN_ENV = ("INVENTORY_MODE", "SLOTTING_MODE", "LAYOUT_MODE", "PACK_LEVEL_MODE")
 
 
 def helm_template(extra_args: list[str]) -> subprocess.CompletedProcess:
@@ -185,7 +185,7 @@ def check_mcp(dep: dict | None, failures: list[str]) -> None:
     # Read-only: it never relays, never consumes, never dials Kafka.
     stray = {
         "KAFKA_BROKERS", "OUTBOX_RELAY_INTERVAL", "OUTBOX_MAX_ATTEMPTS", "SHUTDOWN_DRAIN_DELAY",
-        "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", *FORBIDDEN_ENV,
+        "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", "PACK_LEVEL_CONSUMER_GROUP", *FORBIDDEN_ENV,
     } & env
     if stray:
         failures.append(f"the MCP Deployment must not get Kafka/relay/consumer env (it never dials Kafka): {sorted(stray)}")
@@ -202,7 +202,7 @@ def check_analytics(projector: dict | None, reports: dict | None, failures: list
         # It never opens the OLTP database and runs none of the api's consumers.
         stray = {
             "DATABASE_URL", "MIGRATIONS_DATABASE_URL", "OUTBOX_RELAY_INTERVAL", "OUTBOX_MAX_ATTEMPTS",
-            "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP",
+            "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", "PACK_LEVEL_CONSUMER_GROUP",
             "FORWARD_ZONE_CODES", "RESERVE_ZONE_CODES", *FORBIDDEN_ENV,
         } & env
         if stray:
@@ -292,6 +292,7 @@ def check_refusals(failures: list[str]) -> None:
         ("an empty inventory group", BASE + ["--set", "config.inventoryConsumerGroup="], "config.inventoryConsumerGroup"),
         ("an empty slotting group", BASE + ["--set", "config.slottingConsumerGroup="], "config.slottingConsumerGroup"),
         ("an empty layout group", BASE + ["--set", "config.layoutConsumerGroup="], "config.layoutConsumerGroup"),
+        ("an empty pack-level group", BASE + ["--set", "config.packLevelConsumerGroup="], "config.packLevelConsumerGroup"),
         ("analytics without a DSN source", BASE + ["--set", "analytics.enabled=true"],
          "neither analytics.url nor analytics.existingSecret"),
         ("analytics without a consumer group",

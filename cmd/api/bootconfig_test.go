@@ -19,6 +19,7 @@ func setBootEnv(t *testing.T) {
 	t.Setenv("INVENTORY_CONSUMER_GROUP", "inv-g")
 	t.Setenv("SLOTTING_CONSUMER_GROUP", "slot-g")
 	t.Setenv("LAYOUT_CONSUMER_GROUP", "lay-g")
+	t.Setenv("PACK_LEVEL_CONSUMER_GROUP", "pack-g")
 }
 
 func TestLoadBootConfigAcceptsACompleteEnvironment(t *testing.T) {
@@ -27,7 +28,7 @@ func TestLoadBootConfigAcceptsACompleteEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.databaseURL == "" || cfg.migrationsURL != cfg.databaseURL || len(cfg.brokers) != 1 || len(cfg.consumers) != 3 {
+	if cfg.databaseURL == "" || cfg.migrationsURL != cfg.databaseURL || len(cfg.brokers) != 1 || len(cfg.consumers) != 4 {
 		t.Fatalf("config = %+v", cfg)
 	}
 	t.Setenv("MIGRATIONS_DATABASE_URL", "postgres://direct")
@@ -40,7 +41,7 @@ func TestLoadBootConfigAcceptsACompleteEnvironment(t *testing.T) {
 func TestLoadBootConfigRefusesEachMissingVariable(t *testing.T) {
 	for _, name := range []string{
 		"DATABASE_URL", "KAFKA_BROKERS",
-		"INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP",
+		"INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", "PACK_LEVEL_CONSUMER_GROUP",
 	} {
 		t.Run(name, func(t *testing.T) {
 			setBootEnv(t)

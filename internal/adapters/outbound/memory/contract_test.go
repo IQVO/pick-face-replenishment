@@ -30,3 +30,7 @@ func TestProcessedEventsContract(t *testing.T) {
 func TestIdempotencyStoreContract(t *testing.T) {
 	repocontract.IdempotencyStore(t, func(*testing.T) ports.IdempotencyStore { return memory.NewIdempotencyStore() })
 }
+
+func TestPackLevelViewContract(t *testing.T) {
+	repocontract.PackLevelView(t, func(*testing.T) ports.PackLevelView { return memory.NewPackLevelView() })
+}

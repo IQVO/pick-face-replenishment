@@ -41,6 +41,7 @@ var mcpWriteUseCases = map[string]bool{
 	"DeclarePolicy": true, "RemovePolicy": true, "RaiseManualRequest": true, "CancelRequest": true, "EvaluateSite": true,
 	"ApplyBinLevel": true, "ApplyForwardAssignmentMap": true, "ApplyZone": true, "ApplyLocationRegistered": true,
 	"ApplyLocationDecommissioned": true, "ApplyRelocation": true,
+	"ApplyPackLevelDeclared": true, "ApplyPackLevelRetired": true,
 	"DeclarePolicyInput": true, "RequestReplenishmentInput": true, "Intake": true,
 }
 

@@ -259,3 +259,40 @@ func TestDetectParamsFeedPlan(t *testing.T) {
 		t.Fatalf("a Raise outcome must be accepted by Plan: %v", err)
 	}
 }
+
+// A PACK_DERIVED policy (ADR 0009) rounds exactly like a DECLARED one, so
+// every quantity it raises is a whole number of cases whatever the bounds and
+// whatever the source bin can spare.
+func TestDetectPackDerivedQuantityIsAWholeNumberOfCases(t *testing.T) {
+	p, err := policy.NewPackDerived("WH1", "SKU-1", 10, 100, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name            string
+		onHand, usable  int64
+		wantQty         int64
+		wantRaiseOrNone detection.Kind
+	}{
+		{"room for 95 eaches rounds down to 84", 5, 500, 84, detection.KindRaise},
+		{"source spares 50 eaches, 48 move", 5, 50, 48, detection.KindRaise},
+		{"source spares 11 eaches, less than one case", 5, 11, 0, detection.KindNoSource},
+		{"empty face asks for 96 eaches rounded to 96", 0, 500, 96, detection.KindRaise},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := detection.Detect(detection.Input{
+				Face: face(tc.onHand, 0), Policy: &p, Reserve: bins("RSV-A", tc.usable, 0),
+			}, v1)
+			if got.Kind != tc.wantRaiseOrNone {
+				t.Fatalf("kind = %s, want %s (%+v)", got.Kind, tc.wantRaiseOrNone, got)
+			}
+			if got.Params.Quantity != tc.wantQty {
+				t.Fatalf("quantity = %d, want %d", got.Params.Quantity, tc.wantQty)
+			}
+			if got.Params.Quantity%12 != 0 {
+				t.Fatalf("quantity %d is not a whole number of cases of 12", got.Params.Quantity)
+			}
+		})
+	}
+}

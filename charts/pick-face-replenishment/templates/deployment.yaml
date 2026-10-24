@@ -98,6 +98,8 @@ spec:
               value: {{ .Values.config.slottingConsumerGroup | quote }}
             - name: LAYOUT_CONSUMER_GROUP
               value: {{ .Values.config.layoutConsumerGroup | quote }}
+            - name: PACK_LEVEL_CONSUMER_GROUP
+              value: {{ .Values.config.packLevelConsumerGroup | quote }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
