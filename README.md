@@ -19,6 +19,8 @@ Pick-Face Replenishment: WMS-tier Supporting bounded context of the warehouse-sy
   Postgres and real Kafka only: there is no in-memory mode ([ADR 0006](docs/adr/0006-postgres-and-kafka-are-the-only-runtime.md)).
   No auth.
 - `cmd/mcp`: a read-only MCP server (Streamable HTTP, `:8090`) over the same read use cases ([ADR 0007](docs/adr/0007-mcp-server-adoption.md)).
+- `cmd/a2a`: a read-only A2A (Agent2Agent) agent (JSON-RPC, `:8093`, Agent Card at `/.well-known/agent-card.json`) over the same
+  read use cases, with two skills, `pick_face_status` and `replenishment_lookup` ([ADR 0010](docs/adr/0010-a2a-inbound-adapter.md)).
 - `cmd/pfr-projector` + `cmd/pfr-reports`: the analytics read side, a replenishment funnel over a separate analytical
   database ([ADR 0008](docs/adr/0008-analytics-read-side.md)).
 - `web/`: the `replenishment_mfe` Module Federation remote for the warehouse console.
@@ -59,6 +61,27 @@ HTTP_ADDR=:18080 DATABASE_URL='postgres://...' KAFKA_BROKERS=broker:9092 \
 
 Every variable is on [Configuration](docs/docs/operations/configuration.md); the first calls are in the
 [Quickstart](docs/docs/overview/quickstart.md).
+
+## A2A agent
+
+`cmd/a2a` delegates nothing and changes nothing: it answers two goal-shaped reads over the SAME use cases as REST and MCP
+(A2A carries delegation of a goal; facts still leave as CloudEvents through the outbox of `cmd/api`). It is read-only
+because the MCP charter is ([ADR 0010](docs/adr/0010-a2a-inbound-adapter.md)), unauthenticated like every fleet endpoint,
+and refuses to boot without `DATABASE_URL` and `A2A_AGENT_URL` (the absolute URL advertised on the Agent Card).
+
+| Skill | Arguments | Answers |
+| --- | --- | --- |
+| `pick_face_status` | `siteId` (required), `status`, `limit`, `cursor` | the forward pick faces of the site with stock, policy bounds, open request and status (`BELOW_MIN`, `OK`, `NO_SOURCE`, `NO_POLICY`) |
+| `replenishment_lookup` | `requestId`, or any of `siteId`, `sku`, `state`, `limit`, `cursor` | one replenishment request, or a newest-first list |
+
+```bash
+A2A_AGENT_URL=http://localhost:8093/ DATABASE_URL='postgres://...' go run ./cmd/a2a
+curl -s localhost:8093/.well-known/agent-card.json
+curl -s localhost:8093/ -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"data":{"skill":"pick_face_status","arguments":{"siteId":"SITE-1"}}}]}}}'
+```
+
+Rejections come back in-band as RFC 7807-shaped `problem`s with the REST statuses and slugs. On Kubernetes the chart renders
+the agent only with `a2a.enabled=true` (Service `<release>-a2a:8093`, optional route `/api/a2a/pick-face-replenishment`).
 
 ## Documentation
 

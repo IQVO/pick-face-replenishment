@@ -106,6 +106,11 @@ const sidebars: SidebarsConfig = {
           label: '0005 Evaluation semantics and persistence',
           href: '/docs/adr/0005-evaluation-semantics-and-persistence',
         },
+        {
+          type: 'link',
+          label: '0010 A2A inbound adapter',
+          href: '/docs/adr/0010-a2a-inbound-adapter',
+        },
       ],
     },
   ],

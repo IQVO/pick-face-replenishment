@@ -159,6 +159,10 @@ than one of them (tests/test_service_selectors.py).
 {{- include "pick-face-replenishment.fullname" . }}-mcp
 {{- end }}
 
+{{- define "pick-face-replenishment.a2aFullname" -}}
+{{- include "pick-face-replenishment.fullname" . }}-a2a
+{{- end }}
+
 {{- define "pick-face-replenishment.analyticsProjectorFullname" -}}
 {{- include "pick-face-replenishment.fullname" . }}-projector
 {{- end }}
