@@ -23,3 +23,4 @@ section.
 | [0007](/docs/adr/0007-mcp-server-adoption) | MCP server adoption (read-only, unauthenticated, additive) | Accepted (2026-10-18) |
 | [0008](/docs/adr/0008-analytics-read-side) | Analytics read side: an analytics stream, a projector and a replenishment funnel report over a separate analytical database | Accepted (2026-10-18) |
 | [0009](/docs/adr/0009-pack-derived-replenishment-multiple) | Pack-derived replenishment multiple | Proposed (2026-10-24) |
+| [0010](/docs/adr/0010-a2a-inbound-adapter) | A2A inbound adapter (read-only, unauthenticated, additive) | Accepted (2026-10-29) |
