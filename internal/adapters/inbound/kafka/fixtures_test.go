@@ -72,3 +72,24 @@ func decommissionedMsg(id, code string) []byte {
 
 // legacyFlat is the retired flat envelope; a consumer must reject it.
 const legacyFlat = `{"event_id":"e-1","event_type":"BinStockLevelChanged","occurred_at":"2026-10-17T09:00:00Z","site_code":"S1","bin":"F-01","sku":"SKU-1","on_hand":8}`
+
+const (
+	typePackDeclared = "com.warehouse.wms.product-master.product.ProductPackLevelDeclared"
+	typePackRetired  = "com.warehouse.wms.product-master.product.ProductPackLevelRetired"
+)
+
+func productMasterMsg(id, typ, data string) []byte {
+	name := typ[strings.LastIndex(typ, ".")+1:]
+	return ce(id, "/warehouse/product-master", typ, "SKU-1", "urn:warehouse:product-master:events:"+name+":v1", data)
+}
+
+func packDeclaredMsg(id, level, gtin string, unitsPerPack, version int) []byte {
+	data := `{"sku":"SKU-1","level":"` + level + `","gtin":"` + gtin + `","childGtin":"00012345678905","qtyOfChild":` + strconv.Itoa(unitsPerPack) +
+		`,"unitsPerPack":` + strconv.Itoa(unitsPerPack) + `,"isOrderable":true,"isDespatchUnit":true,"effectiveFrom":"2026-09-01T00:00:00Z","version":` + strconv.Itoa(version) + `}`
+	return productMasterMsg(id, typePackDeclared, data)
+}
+
+func packRetiredMsg(id, level, gtin string, version int) []byte {
+	data := `{"sku":"SKU-1","level":"` + level + `","gtin":"` + gtin + `","effectiveTo":"2026-10-01T00:00:00Z","reason":"superseded","version":` + strconv.Itoa(version) + `}`
+	return productMasterMsg(id, typePackRetired, data)
+}

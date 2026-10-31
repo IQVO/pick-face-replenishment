@@ -7,7 +7,7 @@ sidebar_position: 2
 
 # Configuration
 
-`cmd/api` is the main binary; `cmd/mcp`, `cmd/pfr-projector` and `cmd/pfr-reports` are separate deployables with their own,
+`cmd/api` is the main binary; `cmd/mcp`, `cmd/a2a`, `cmd/pfr-projector` and `cmd/pfr-reports` are separate deployables with their own,
 smaller environment (sections below). Everything is read from the environment at boot by `cmd/api/main.go`, `config.go`,
 `consumers.go`, `relay.go`, `adapters.go` and `internal/adapters/outbound/postgres/migrate.go`; there are no flags and
 no config file. Test-only variables do not exist in the non-test code. Variables marked **yes** in *Required* have no
@@ -68,6 +68,20 @@ Read-only MCP server (ADR 0007). Reads no Kafka variable, builds no outbox, and 
 | `DATABASE_URL` | none | **yes** | Postgres DSN of the OLTP database (same as `cmd/api`). Missing is a boot error. |
 | `MIGRATIONS_DATABASE_URL` | value of `DATABASE_URL` | no | Direct DSN for the boot migrations. |
 | `MCP_ADDR` | `:8090` | no | Listen address; MCP is served at `/mcp` (and `/`), `GET /healthz` for probes. |
+| `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES` | `FWD`, `RSV` | no | Same meaning as for `cmd/api`. |
+| `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`, `error`. |
+
+## `cmd/a2a`
+
+Read-only A2A (Agent2Agent) agent (ADR 0010). Like `cmd/mcp` it reads no Kafka variable (no `KAFKA_BROKERS`,
+`EVENT_PUBLISHER` or consumer group), builds no outbox, and has no auth.
+
+| Variable | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | none | **yes** | Postgres DSN of the OLTP database (same as `cmd/api`). Missing is a boot error. |
+| `A2A_AGENT_URL` | none | **yes** | Absolute `http(s)` URL of the agent's JSON-RPC endpoint, advertised on the Agent Card (in-cluster `http://<release>-a2a.<ns>.svc.cluster.local:8093/`). Missing or not absolute is a boot error. |
+| `MIGRATIONS_DATABASE_URL` | value of `DATABASE_URL` | no | Direct DSN for the boot migrations. |
+| `A2A_ADDR` | `:8093` | no | Listen address; JSON-RPC is served at `/` and `/a2a`, the Agent Card at `/.well-known/agent-card.json`, `GET /healthz` for probes. |
 | `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES` | `FWD`, `RSV` | no | Same meaning as for `cmd/api`. |
 | `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`, `error`. |
 
@@ -147,12 +161,13 @@ the chart refuses a value below 35. Gateway (`gatewayApi`), Ingress, HPA (`autos
 (`kongPlugins.cors`, `.prometheus`, `.opentelemetry`; no auth plugin) are off by default. The CORS plugin allows the
 `Idempotency-Key` and `If-Match` request headers the web remote sends.
 
-Three optional components, each its own workload with its own `app.kubernetes.io/component` label and, where it has an
+Four optional components, each its own workload with its own `app.kubernetes.io/component` label and, where it has an
 HTTP surface, its own Service (`tests/test_service_selectors.py` pins that every Service selects exactly one Deployment):
 
 | Values block | Renders | Default |
 | --- | --- | --- |
 | `mcp` | Deployment + Service `<release>-mcp:8090` running `/app/mcp`; `mcp.route.enabled` adds an HTTPRoute `/api/mcp/pick-face-replenishment` rewritten to `/mcp` | off |
+| `a2a` | Deployment + Service `<release>-a2a:8093` running `/app/a2a`, `A2A_AGENT_URL` defaulting to the Service DNS (override with `a2a.agentUrl`); `a2a.route.enabled` adds an HTTPRoute `/api/a2a/pick-face-replenishment` rewritten to `/`. No Kafka env | off |
 | `analytics` | Deployment `<release>-projector` (`/app/pfr-projector`, no Service), Deployment + Service `<release>-reports:80` (`/app/pfr-reports`), and a Secret with `ANALYTICS_DATABASE_URL` from `analytics.url` (or `analytics.existingSecret`); the chart refuses to render it without a DSN source or `analytics.consumerGroup` | off |
 | `frontend` | nginx Deployment + ClusterIP Service `<release>-frontend:80` for the `replenishment_mfe` remote (image `frontend.image.*`); no route, the Nginx web gateway owns it | off |
 

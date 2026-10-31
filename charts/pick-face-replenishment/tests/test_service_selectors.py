@@ -11,7 +11,7 @@ selector.matchLabels and its pod labels, and every Service selects on it, so
 each Service selects EXACTLY ONE Deployment. This test fails if that ever
 stops being true.
 
-Components: api (always), mcp (ADR 0007, default off), the analytics read side
+Components: api (always), mcp (ADR 0007, default off), a2a (ADR 0010, default off), the analytics read side
 of ADR 0008 -- analytics-projector (no Service) and analytics-reports -- and the
 frontend (default off; the nginx pod serving the replenishment_mfe remote: its
 own workload, component=frontend, a ClusterIP Service, never routed by this
@@ -48,6 +48,7 @@ ENABLE_EVERYTHING = BASE + [
     "--set", "gatewayApi.enabled=true",
     "--set", "ingress.enabled=true",
     "--set", "mcp.enabled=true",
+    "--set", "a2a.enabled=true",
     "--set", "frontend.enabled=true",
     # ADR 0008: the analytics read side ON together with everything else.
     "--set", "analytics.enabled=true",
@@ -57,12 +58,12 @@ ENABLE_EVERYTHING = BASE + [
 # Every env var cmd/api reads that has a dedicated chart value.
 API_ENV = (
     "HTTP_ADDR", "LOG_LEVEL", "DATABASE_URL", "MIGRATIONS_DATABASE_URL", "KAFKA_BROKERS",
-    "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP",
+    "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", "PACK_LEVEL_CONSUMER_GROUP",
     "OUTBOX_RELAY_INTERVAL", "OUTBOX_MAX_ATTEMPTS", "SHUTDOWN_DRAIN_DELAY",
     "FORWARD_ZONE_CODES", "RESERVE_ZONE_CODES",
 )
 # Never rendered: they default to kafka and the binary rejects permissive.
-FORBIDDEN_ENV = ("INVENTORY_MODE", "SLOTTING_MODE", "LAYOUT_MODE")
+FORBIDDEN_ENV = ("INVENTORY_MODE", "SLOTTING_MODE", "LAYOUT_MODE", "PACK_LEVEL_MODE")
 
 
 def helm_template(extra_args: list[str]) -> subprocess.CompletedProcess:
@@ -112,14 +113,14 @@ def check_selectors(docs: list[dict], failures: list[str]) -> None:
     services = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Service"}
     deployments = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Deployment"}
 
-    expected = {RELEASE, f"{RELEASE}-mcp", f"{RELEASE}-projector", f"{RELEASE}-reports", f"{RELEASE}-frontend"}
+    expected = {RELEASE, f"{RELEASE}-mcp", f"{RELEASE}-a2a", f"{RELEASE}-projector", f"{RELEASE}-reports", f"{RELEASE}-frontend"}
     if set(deployments) != expected:
         failures.append(f"expected Deployments {sorted(expected)}, got {sorted(deployments)}")
     if set(services) != expected - {f"{RELEASE}-projector"}:
         failures.append(f"expected a Service per Deployment but the projector, got {sorted(services)}")
 
     for name, component in (
-        (RELEASE, "api"), (f"{RELEASE}-mcp", "mcp"),
+        (RELEASE, "api"), (f"{RELEASE}-mcp", "mcp"), (f"{RELEASE}-a2a", "a2a"),
         (f"{RELEASE}-reports", "analytics-reports"), (f"{RELEASE}-frontend", "frontend"),
     ):
         if name in services and selector_of(services[name]).get("app.kubernetes.io/component") != component:
@@ -168,6 +169,7 @@ def check_selectors(docs: list[dict], failures: list[str]) -> None:
 
     check_env(api, failures)
     check_mcp(deployments.get(f"{RELEASE}-mcp"), failures)
+    check_a2a(deployments.get(f"{RELEASE}-a2a"), failures)
     check_analytics(deployments.get(f"{RELEASE}-projector"), deployments.get(f"{RELEASE}-reports"), failures)
     check_frontend(docs, deployments.get(f"{RELEASE}-frontend"), failures)
 
@@ -185,13 +187,34 @@ def check_mcp(dep: dict | None, failures: list[str]) -> None:
     # Read-only: it never relays, never consumes, never dials Kafka.
     stray = {
         "KAFKA_BROKERS", "OUTBOX_RELAY_INTERVAL", "OUTBOX_MAX_ATTEMPTS", "SHUTDOWN_DRAIN_DELAY",
-        "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", *FORBIDDEN_ENV,
+        "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", "PACK_LEVEL_CONSUMER_GROUP", *FORBIDDEN_ENV,
     } & env
     if stray:
         failures.append(f"the MCP Deployment must not get Kafka/relay/consumer env (it never dials Kafka): {sorted(stray)}")
     for want in ("DATABASE_URL", "MIGRATIONS_DATABASE_URL", "MCP_ADDR", "LOG_LEVEL", "FORWARD_ZONE_CODES", "RESERVE_ZONE_CODES"):
         if want not in env:
             failures.append(f"the MCP Deployment does not render {want}")
+
+
+def check_a2a(dep: dict | None, failures: list[str]) -> None:
+    if dep is None:
+        return
+    if command_of(dep) != ["/app/a2a"]:
+        failures.append("the A2A Deployment must run /app/a2a")
+    env = set(env_names(dep))
+    # Read-only like mcp: it never relays, never consumes, never dials Kafka,
+    # and builds no event publisher.
+    stray = {
+        "KAFKA_BROKERS", "EVENT_PUBLISHER", "OUTBOX_RELAY_INTERVAL", "OUTBOX_MAX_ATTEMPTS", "SHUTDOWN_DRAIN_DELAY",
+        "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", "PACK_LEVEL_CONSUMER_GROUP", *FORBIDDEN_ENV,
+    } & env
+    if stray:
+        failures.append(f"the A2A Deployment must not get Kafka/publisher/relay/consumer env (it never dials Kafka): {sorted(stray)}")
+    for want in ("DATABASE_URL", "MIGRATIONS_DATABASE_URL", "A2A_ADDR", "A2A_AGENT_URL", "LOG_LEVEL", "FORWARD_ZONE_CODES", "RESERVE_ZONE_CODES"):
+        if want not in env:
+            failures.append(f"the A2A Deployment does not render {want}")
+    if env_value(dep, "A2A_ADDR") != ":8093":
+        failures.append("the A2A Deployment must listen on :8093")
 
 
 def check_analytics(projector: dict | None, reports: dict | None, failures: list[str]) -> None:
@@ -202,7 +225,7 @@ def check_analytics(projector: dict | None, reports: dict | None, failures: list
         # It never opens the OLTP database and runs none of the api's consumers.
         stray = {
             "DATABASE_URL", "MIGRATIONS_DATABASE_URL", "OUTBOX_RELAY_INTERVAL", "OUTBOX_MAX_ATTEMPTS",
-            "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP",
+            "INVENTORY_CONSUMER_GROUP", "SLOTTING_CONSUMER_GROUP", "LAYOUT_CONSUMER_GROUP", "PACK_LEVEL_CONSUMER_GROUP",
             "FORWARD_ZONE_CODES", "RESERVE_ZONE_CODES", *FORBIDDEN_ENV,
         } & env
         if stray:
@@ -268,7 +291,7 @@ def check_defaults(failures: list[str]) -> None:
     stray = [k for k in kinds if k in {"HorizontalPodAutoscaler", "Ingress", "HTTPRoute", "KongPlugin"}]
     stray += [
         d["metadata"]["name"] for d in defaults
-        if d["metadata"]["name"].endswith(("-mcp", "-frontend", "-projector", "-reports", "-analytics"))
+        if d["metadata"]["name"].endswith(("-mcp", "-a2a", "-frontend", "-projector", "-reports", "-analytics"))
     ]
     if stray:
         failures.append(f"optional components rendered with default values: {stray}")
@@ -292,6 +315,7 @@ def check_refusals(failures: list[str]) -> None:
         ("an empty inventory group", BASE + ["--set", "config.inventoryConsumerGroup="], "config.inventoryConsumerGroup"),
         ("an empty slotting group", BASE + ["--set", "config.slottingConsumerGroup="], "config.slottingConsumerGroup"),
         ("an empty layout group", BASE + ["--set", "config.layoutConsumerGroup="], "config.layoutConsumerGroup"),
+        ("an empty pack-level group", BASE + ["--set", "config.packLevelConsumerGroup="], "config.packLevelConsumerGroup"),
         ("analytics without a DSN source", BASE + ["--set", "analytics.enabled=true"],
          "neither analytics.url nor analytics.existingSecret"),
         ("analytics without a consumer group",
@@ -317,7 +341,7 @@ def main() -> int:
             print(f"FAIL: {f}")
         return 1
 
-    print("PASS: every Service selects exactly one Deployment (api, mcp, analytics-reports, frontend); mcp, analytics, "
+    print("PASS: every Service selects exactly one Deployment (api, mcp, a2a, analytics-reports, frontend); mcp, a2a, analytics, "
           "frontend, HPA and routes are off by default; "
           "every cmd/api env var has a dedicated value and no *_MODE is rendered; the chart refuses to "
           "render without a database source, without brokers, with an empty consumer group or with a "

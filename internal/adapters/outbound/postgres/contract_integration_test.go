@@ -43,3 +43,9 @@ func TestIdempotencyStoreContract(t *testing.T) {
 		return postgres.NewIdempotencyStore(pgtest.NewPool(t))
 	})
 }
+
+func TestPackLevelViewContract(t *testing.T) {
+	repocontract.PackLevelView(t, func(t *testing.T) ports.PackLevelView {
+		return postgres.NewPackLevelView(pgtest.NewPool(t))
+	})
+}

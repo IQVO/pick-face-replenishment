@@ -108,6 +108,7 @@ group ids live in values (config.*ConsumerGroup), never in a template literal.
 {{- $_ := required "pick-face-replenishment requires config.inventoryConsumerGroup to be set (INVENTORY_CONSUMER_GROUP): a stable Kafka group id; the binary exits at boot without it." .Values.config.inventoryConsumerGroup -}}
 {{- $_ := required "pick-face-replenishment requires config.slottingConsumerGroup to be set (SLOTTING_CONSUMER_GROUP): a stable Kafka group id; the binary exits at boot without it." .Values.config.slottingConsumerGroup -}}
 {{- $_ := required "pick-face-replenishment requires config.layoutConsumerGroup to be set (LAYOUT_CONSUMER_GROUP): a stable Kafka group id; the binary exits at boot without it." .Values.config.layoutConsumerGroup -}}
+{{- $_ := required "pick-face-replenishment requires config.packLevelConsumerGroup to be set (PACK_LEVEL_CONSUMER_GROUP): a stable Kafka group id; the binary exits at boot without it." .Values.config.packLevelConsumerGroup -}}
 {{- end -}}
 
 {{/*
@@ -156,6 +157,10 @@ than one of them (tests/test_service_selectors.py).
 */}}
 {{- define "pick-face-replenishment.mcpFullname" -}}
 {{- include "pick-face-replenishment.fullname" . }}-mcp
+{{- end }}
+
+{{- define "pick-face-replenishment.a2aFullname" -}}
+{{- include "pick-face-replenishment.fullname" . }}-a2a
 {{- end }}
 
 {{- define "pick-face-replenishment.analyticsProjectorFullname" -}}

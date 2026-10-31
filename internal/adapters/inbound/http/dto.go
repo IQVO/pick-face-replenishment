@@ -14,6 +14,9 @@ type declarePolicyBody struct {
 	MinQty   *int64 `json:"minQty"`
 	MaxQty   *int64 `json:"maxQty"`
 	Multiple *int64 `json:"multiple"`
+	// Source is DECLARED (default) or PACK_DERIVED; PACK_DERIVED takes the
+	// multiple from the SKU's active CASE level and rejects a multiple.
+	Source string `json:"source"`
 }
 
 // requestReplenishmentBody is the body of POST /replenishments.
@@ -29,6 +32,8 @@ type policyDTO struct {
 	MinQty     int64     `json:"minQty"`
 	MaxQty     int64     `json:"maxQty"`
 	Multiple   int64     `json:"multiple"`
+	Source     string    `json:"source"`
+	Stale      bool      `json:"stale"`
 	Version    int64     `json:"version"`
 	DeclaredAt time.Time `json:"declaredAt"`
 }
@@ -42,7 +47,7 @@ func toPolicy(rec repository.PolicyRecord) policyDTO {
 	p := rec.Policy
 	return policyDTO{
 		SiteID: p.SiteID, SKU: p.SKU, MinQty: p.MinQty, MaxQty: p.MaxQty,
-		Multiple: p.Multiple, Version: p.Version, DeclaredAt: rec.DeclaredAt.UTC(),
+		Multiple: p.Multiple, Source: string(p.Source), Stale: p.Stale, Version: p.Version, DeclaredAt: rec.DeclaredAt.UTC(),
 	}
 }
 

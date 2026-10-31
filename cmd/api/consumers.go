@@ -38,12 +38,13 @@ type consumerEnv struct {
 	modeEnv, groupEnv string
 }
 
-// consumerEnvs lists the three consumers (ADR 0003). The group ids come from
+// consumerEnvs lists the four consumers (ADR 0003, ADR 0009). The group ids come from
 // the environment, never from a literal.
 var consumerEnvs = []consumerEnv{
 	{"INVENTORY_MODE", "INVENTORY_CONSUMER_GROUP"},
 	{"SLOTTING_MODE", "SLOTTING_CONSUMER_GROUP"},
 	{"LAYOUT_MODE", "LAYOUT_CONSUMER_GROUP"},
+	{"PACK_LEVEL_MODE", "PACK_LEVEL_CONSUMER_GROUP"},
 }
 
 // plannedConsumer is a consumer with its resolved group.
@@ -85,7 +86,7 @@ type consumerBuilder func(brokers []string, group string, logger *slog.Logger) *
 
 // consumerBuilders maps each consumer's mode variable to its builder.
 func consumerBuilders(ad adapters, zones usecases.ZoneConfig) map[string]consumerBuilder {
-	intake, eval := ad.intake(), ad.evaluator(zones)
+	intake, eval, derive := ad.intake(), ad.evaluator(zones), ad.packDerivation()
 	return map[string]consumerBuilder{
 		"INVENTORY_MODE": func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer {
 			level := &usecases.ApplyBinLevel{Intake: intake, Eval: eval}
@@ -100,6 +101,12 @@ func consumerBuilders(ad adapters, zones usecases.ZoneConfig) map[string]consume
 				Zone:           &usecases.ApplyZone{Intake: intake, Read: ad.read},
 				Registered:     &usecases.ApplyLocationRegistered{Intake: intake, Read: ad.read},
 				Decommissioned: &usecases.ApplyLocationDecommissioned{Intake: intake, Read: ad.read},
+			}, logger)
+		},
+		"PACK_LEVEL_MODE": func(brokers []string, group string, logger *slog.Logger) *inboundkafka.Consumer {
+			return inboundkafka.NewProductMasterConsumer(brokers, group, inboundkafka.ProductMasterUseCases{
+				Declared: &usecases.ApplyPackLevelDeclared{Intake: intake, PackLevels: ad.packLevels, Derive: derive},
+				Retired:  &usecases.ApplyPackLevelRetired{Intake: intake, PackLevels: ad.packLevels, Derive: derive},
 			}, logger)
 		},
 	}

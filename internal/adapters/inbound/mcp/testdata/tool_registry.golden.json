@@ -46,6 +46,12 @@
         "sku": {
           "type": "string"
         },
+        "source": {
+          "type": "string"
+        },
+        "stale": {
+          "type": "boolean"
+        },
         "version": {
           "type": "integer"
         }
@@ -56,6 +62,8 @@
         "min_qty",
         "max_qty",
         "multiple",
+        "source",
+        "stale",
         "version",
         "declared_at"
       ],
@@ -310,6 +318,12 @@
               "sku": {
                 "type": "string"
               },
+              "source": {
+                "type": "string"
+              },
+              "stale": {
+                "type": "boolean"
+              },
               "version": {
                 "type": "integer"
               }
@@ -320,6 +334,8 @@
               "min_qty",
               "max_qty",
               "multiple",
+              "source",
+              "stale",
               "version",
               "declared_at"
             ],

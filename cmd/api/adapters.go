@@ -26,10 +26,12 @@ type adapters struct {
 	policies ports.PolicyRepo
 	requests ports.RequestRepo
 	read     ports.PickFaceReadModel
-	events   ports.EventSink
-	uow      ports.UnitOfWork
-	clock    ports.Clock
-	ids      ports.IDGenerator
+	// packLevels is the local copy of product-master's pack levels.
+	packLevels ports.PackLevelView
+	events     ports.EventSink
+	uow        ports.UnitOfWork
+	clock      ports.Clock
+	ids        ports.IDGenerator
 	// processed is the consumers' processed-event claim table.
 	processed ports.ProcessedEvents
 
@@ -77,7 +79,8 @@ func postgresAdapters(pool *pgxpool.Pool) adapters {
 	ob := postgres.NewOutboxRepo(pool)
 	ad := adapters{
 		policies: postgres.NewPolicyRepo(pool), requests: postgres.NewRequestRepo(pool), read: postgres.NewReadModel(pool),
-		events: events.NewSink(ob), uow: postgres.NewUnitOfWork(pool),
+		packLevels: postgres.NewPackLevelView(pool),
+		events:     events.NewSink(ob), uow: postgres.NewUnitOfWork(pool),
 		clock: system.Clock{}, ids: system.RandomIDs{},
 		processed: postgres.NewProcessedEventRepo(pool),
 		outbox:    ob,
@@ -96,6 +99,12 @@ func (a adapters) evaluator(zones usecases.ZoneConfig) usecases.Evaluator {
 	}
 }
 
+// packDerivation re-derives the PACK_DERIVED policies after a CASE level
+// changed.
+func (a adapters) packDerivation() usecases.PackDerivation {
+	return usecases.PackDerivation{Policies: a.policies, PackLevels: a.packLevels, Events: a.events, Clock: a.clock}
+}
+
 // intake is the claim-and-apply skeleton every consumer use case shares.
 func (a adapters) intake() usecases.Intake {
 	return usecases.Intake{UoW: a.uow, Processed: a.processed}
@@ -105,7 +114,7 @@ func (a adapters) intake() usecases.Intake {
 func buildServer(a adapters, zones usecases.ZoneConfig, readiness *inboundhttp.Readiness) *inboundhttp.Server {
 	eval := a.evaluator(zones)
 	return &inboundhttp.Server{
-		DeclarePolicy: &usecases.DeclarePolicy{Policies: a.policies, Events: a.events, UoW: a.uow, Clock: a.clock},
+		DeclarePolicy: &usecases.DeclarePolicy{Policies: a.policies, Events: a.events, UoW: a.uow, Clock: a.clock, PackLevels: a.packLevels},
 		RemovePolicy:  &usecases.RemovePolicy{Policies: a.policies, Requests: a.requests, Events: a.events, UoW: a.uow, Clock: a.clock},
 		GetPolicy:     &usecases.GetPolicy{Policies: a.policies},
 		ListPolicies:  &usecases.ListPolicies{Policies: a.policies},

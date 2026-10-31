@@ -31,6 +31,7 @@ func PolicyRepo(t *testing.T, newRepo func(t *testing.T) ports.PolicyRepo) {
 		"a deleted policy can be declared again":       policyRedeclare,
 		"list is ordered by site then sku and paged":   policyListPaging,
 		"list narrows by site and by sku":              policyListFilters,
+		"source and stale round trip and reset":        policySourceRoundTrip,
 	}
 	for name, fn := range cases {
 		t.Run(name, func(t *testing.T) { fn(t, newRepo(t)) })

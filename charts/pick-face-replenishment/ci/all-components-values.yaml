@@ -13,6 +13,7 @@ config:
   inventoryConsumerGroup: "pick-face-replenishment-inventory"
   slottingConsumerGroup: "pick-face-replenishment-slotting"
   layoutConsumerGroup: "pick-face-replenishment-layout"
+  packLevelConsumerGroup: "pick-face-replenishment-pack-levels"
 gatewayApi:
   enabled: true
   parentRefs:
@@ -34,10 +35,18 @@ autoscaling:
   api:
     enabled: true
 
-# Every optional COMPONENT at once (api + mcp + projector + reports +
+# Every optional COMPONENT at once (api + mcp + a2a + projector + reports +
 # frontend), so a template that renders alone but collides with another is
 # caught by `helm lint`.
 mcp:
+  enabled: true
+  route:
+    enabled: true
+    parentRefs:
+      - name: warehouse-gateway
+        namespace: kong
+        sectionName: http
+a2a:
   enabled: true
   route:
     enabled: true

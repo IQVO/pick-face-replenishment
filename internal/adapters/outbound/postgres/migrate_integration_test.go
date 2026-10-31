@@ -43,7 +43,7 @@ func TestMigrationsApplyAndRunAgainAsANoOp(t *testing.T) {
 	full := pgtest.Schema(t, url)
 	for _, table := range []string{
 		"policies", "replenishment_requests", "bin_stock_levels", "forward_assignments", "forward_assignment_maps",
-		"zones", "locations", "processed_events", "outbox_events", "idempotency_keys",
+		"zones", "locations", "processed_events", "outbox_events", "idempotency_keys", "pack_levels",
 	} {
 		if !strings.Contains(full, "col "+table+".") {
 			t.Fatalf("table %s missing from the migrated schema", table)
@@ -123,5 +123,36 @@ func TestMigrationsRunFromTheUnpooledURLOnly(t *testing.T) {
 	defer pool.Close()
 	if n := pgtest.Count(t, pool, "forward_assignment_maps"); n != 0 {
 		t.Fatalf("rows = %d", n)
+	}
+}
+
+func TestThePackDerivedMigrationIsAdditiveAndKeepsExistingPoliciesDeclared(t *testing.T) {
+	url := pgtest.EmptyURL(t)
+	m := migrator(t, url)
+	mustNil(t, m.Migrate(2))
+	before := pgtest.Schema(t, url)
+	pool, err := postgres.NewPool(context.Background(), url)
+	mustNil(t, err)
+	defer pool.Close()
+	_, err = pool.Exec(context.Background(), `INSERT INTO policies (site_id, sku, min_qty, max_qty, multiple, version, declared_at)
+		VALUES ('S1', 'SKU-1', 10, 60, 6, 1, now())`)
+	mustNil(t, err)
+
+	mustNil(t, m.Migrate(3))
+
+	after := pgtest.Schema(t, url)
+	for _, line := range strings.Split(strings.TrimSpace(before), "\n") {
+		if !strings.Contains(after, line+"\n") {
+			t.Fatalf("migration 3 changed or removed %q", line)
+		}
+	}
+	var source string
+	var stale bool
+	mustNil(t, pool.QueryRow(context.Background(), `SELECT multiple_source, stale FROM policies WHERE site_id = 'S1'`).Scan(&source, &stale))
+	if source != "DECLARED" || stale {
+		t.Fatalf("an existing policy must stay DECLARED and not stale, got %s %v", source, stale)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE policies SET stale = true WHERE site_id = 'S1'`); err == nil {
+		t.Fatal("a DECLARED policy must not be allowed to be stale")
 	}
 }

@@ -40,10 +40,11 @@ env_value() { # env_value <rendered> <NAME>
 [[ "$(env_value "$deployment" KAFKA_BROKERS)" == "kafka.example.invalid:9092" ]] || fail "KAFKA_BROKERS is not rendered from kafka.brokers"
 [[ "$(env_value "$deployment" INVENTORY_CONSUMER_GROUP)" == "pick-face-replenishment-inventory" ]] || fail "INVENTORY_CONSUMER_GROUP is not rendered from config.inventoryConsumerGroup"
 [[ "$(env_value "$deployment" SLOTTING_CONSUMER_GROUP)" == "pick-face-replenishment-slotting" ]] || fail "SLOTTING_CONSUMER_GROUP is not rendered from config.slottingConsumerGroup"
+[[ "$(env_value "$deployment" PACK_LEVEL_CONSUMER_GROUP)" == "pick-face-replenishment-pack-levels" ]] || fail "PACK_LEVEL_CONSUMER_GROUP is not rendered from config.packLevelConsumerGroup"
 [[ "$(env_value "$deployment" LAYOUT_CONSUMER_GROUP)" == "pick-face-replenishment-layout" ]] || fail "LAYOUT_CONSUMER_GROUP is not rendered from config.layoutConsumerGroup"
 grep -A4 'name: DATABASE_URL$' <<<"$deployment" | grep -q 'secretKeyRef:' || fail "DATABASE_URL must come from a Secret (secretKeyRef)"
 grep -A6 'name: MIGRATIONS_DATABASE_URL$' <<<"$deployment" | grep -q 'optional: true' || fail "MIGRATIONS_DATABASE_URL must be an optional secretKeyRef"
-for var in KAFKA_BROKERS INVENTORY_CONSUMER_GROUP SLOTTING_CONSUMER_GROUP LAYOUT_CONSUMER_GROUP; do
+for var in KAFKA_BROKERS INVENTORY_CONSUMER_GROUP SLOTTING_CONSUMER_GROUP LAYOUT_CONSUMER_GROUP PACK_LEVEL_CONSUMER_GROUP; do
   grep -q "^  $var: " <<<"$configmap" || fail "the ConfigMap does not carry $var"
 done
 if grep -qE '^  (MIGRATIONS_)?DATABASE_URL:' <<<"$configmap"; then fail "a DSN must never land in the ConfigMap"; fi
@@ -126,7 +127,7 @@ binary_env() {
   for f in "$repo_dir"/cmd/api/*.go; do
     case "$f" in *_test.go) continue ;; esac
     grep -hoE '[Gg]etenv\("[A-Z][A-Z0-9_]*"' "$f" || true
-    grep -hoE '"[A-Z]+_CONSUMER_GROUP"' "$f" || true
+    grep -hoE '"[A-Z_]+_CONSUMER_GROUP"' "$f" || true
   done | sed -E 's/.*"([A-Z0-9_]+)".*/\1/' | sort -u
 }
 # Word splitting is safe: the names are [A-Z0-9_] only (bash 3.2 has no mapfile).
@@ -166,14 +167,15 @@ expect_refusal "no brokers" "kafka.brokers" --set database.url=postgres://u@h/db
 expect_refusal "an empty inventory group" "config.inventoryConsumerGroup" "${base[@]}" --set config.inventoryConsumerGroup=
 expect_refusal "an empty slotting group" "config.slottingConsumerGroup" "${base[@]}" --set config.slottingConsumerGroup=
 expect_refusal "an empty layout group" "config.layoutConsumerGroup" "${base[@]}" --set config.layoutConsumerGroup=
+expect_refusal "an empty pack-level group" "config.packLevelConsumerGroup" "${base[@]}" --set config.packLevelConsumerGroup=
 expect_refusal "a short grace period" "terminationGracePeriodSeconds" "${base[@]}" --set terminationGracePeriodSeconds=20
 expect_refusal "INVENTORY_MODE through extraEnv" "*_MODE" "${base[@]}" --set 'extraEnv[0].name=INVENTORY_MODE' --set 'extraEnv[0].value=permissive'
 expect_refusal "LAYOUT_MODE through extraEnv" "ADR 0006" "${base[@]}" --set 'extraEnv[0].name=LAYOUT_MODE' --set 'extraEnv[0].value=kafka'
 
-# --- the optional components (mcp, analytics, frontend) -------------------------
+# --- the optional components (mcp, a2a, analytics, frontend) --------------------
 # Off by default: the default render is the api alone.
 default_render="$(render "${base[@]}")"
-for component in mcp analytics-projector analytics-reports frontend; do
+for component in mcp a2a analytics-projector analytics-reports frontend; do
   if grep -q "app.kubernetes.io/component: $component\$" <<<"$default_render"; then
     fail "the $component component must not render by default"
   fi
@@ -215,6 +217,51 @@ assert_renders_env "mcp" "$mcp_full" mcp
 [[ "$(env_value "$(render_only mcp-deployment.yaml "${base[@]}" --set mcp.enabled=true --set mcp.httpAddr=:9191)" MCP_ADDR)" == ":9191" ]] || fail "mcp.httpAddr does not reach MCP_ADDR"
 if render_only mcp-route.yaml "${base[@]}" --set mcp.enabled=true 2>&1 | grep -q 'kind: HTTPRoute'; then fail "the mcp route must stay off until mcp.route.enabled"; fi
 
+# A2A (ADR 0010): a READ-ONLY agent like mcp -- Postgres only, its own Service,
+# the Agent Card URL, no Kafka, no event publisher.
+a2a_dep="$(render_only a2a-deployment.yaml "${base[@]}" --set a2a.enabled=true)"
+a2a_svc="$(render_only a2a-service.yaml "${base[@]}" --set a2a.enabled=true)"
+grep -q 'app.kubernetes.io/component: a2a' <<<"$a2a_dep" || fail "the a2a Deployment is not labelled component=a2a"
+grep -q 'command: \["/app/a2a"\]' <<<"$a2a_dep" || fail "the a2a Deployment must run /app/a2a"
+grep -q 'app.kubernetes.io/component: a2a' <<<"$a2a_svc" || fail "the a2a Service must select component=a2a"
+grep -A4 'name: DATABASE_URL$' <<<"$a2a_dep" | grep -q 'secretKeyRef:' || fail "the a2a DATABASE_URL must come from a Secret"
+if grep -Eq 'name: (KAFKA_BROKERS|EVENT_PUBLISHER|[A-Z]+_CONSUMER_GROUP|OUTBOX_[A-Z_]+)$' <<<"$a2a_dep"; then
+  fail "the a2a Deployment must not get Kafka/publisher/relay/consumer env (read-only, never dials Kafka)"
+fi
+no_mode "a2a Deployment" "$a2a_dep"
+[[ "$(env_value "$a2a_dep" A2A_ADDR)" == ":8093" ]] || fail "the a2a agent must listen on :8093 (8090 is mcp, 8091 the projector admin, 8092 the reports API)"
+# The Agent Card must advertise a dialable absolute URL: it defaults to the
+# release's in-cluster Service DNS (namespace-derived, so pattern-match) and
+# stays overridable.
+a2a_url="$(env_value "$a2a_dep" A2A_AGENT_URL || true)" # a missing var must reach the fail message below, not abort under set -e
+[[ "$a2a_url" =~ ^http://[a-z0-9.-]+-a2a\.[a-z0-9-]+\.svc\.cluster\.local:8093/$ ]] || fail "A2A_AGENT_URL default is not the in-cluster Service DNS: $a2a_url"
+a2a_override="$(render_only a2a-deployment.yaml "${base[@]}" --set a2a.enabled=true --set a2a.agentUrl=http://gw.example/api/a2a/pick-face-replenishment/)"
+[[ "$(env_value "$a2a_override" A2A_AGENT_URL)" == "http://gw.example/api/a2a/pick-face-replenishment/" ]] || fail "a2a.agentUrl does not override A2A_AGENT_URL"
+[[ "$(env_value "$(render_only a2a-deployment.yaml "${base[@]}" --set a2a.enabled=true --set a2a.httpAddr=:9292)" A2A_ADDR)" == ":9292" ]] || fail "a2a.httpAddr does not reach A2A_ADDR"
+# Every env literal cmd/a2a reads, and every variable its boot config names as
+# REQUIRED, is rendered (derived from the Go source so a new one fails until
+# the chart has it). The regex allows digits: A2A_AGENT_URL is not A_AGENT_URL.
+a2a_full="$(render_only a2a-deployment.yaml "${everything[@]}")"
+assert_renders_env "a2a" "$a2a_full" a2a
+required_env() { # required_env <dir>: the variables the boot errors of cmd/<dir> name as REQUIRED
+  local f
+  for f in "$repo_dir/cmd/$1"/*.go; do
+    case "$f" in *_test.go) continue ;; esac
+    grep -ho '[A-Z][A-Z0-9_]\{2,\} is required' "$f" || true
+  done | sed -E 's/ is required//' | sort -u
+}
+a2a_required="$(required_env a2a)"
+[[ -n "$a2a_required" ]] || fail "found no mandatory variables for cmd/a2a; the scan is looking in the wrong place"
+for var in $a2a_required; do
+  grep -q "name: $var\$" <<<"$a2a_full" || fail "the a2a Deployment does not render $var, which cmd/a2a requires"
+done
+if render_only a2a-route.yaml "${base[@]}" --set a2a.enabled=true 2>&1 | grep -q 'kind: HTTPRoute'; then fail "the a2a route must stay off until a2a.route.enabled"; fi
+a2a_route="$(render_only a2a-route.yaml "${base[@]}" --set a2a.enabled=true --set a2a.route.enabled=true --set a2a.route.parentRefs[0].name=gw --set a2a.route.parentRefs[0].namespace=kong)"
+grep -q 'replacePrefixMatch: /$' <<<"$a2a_route" || fail "the a2a route must rewrite its prefix to /"
+grep -q 'value: /api/a2a/pick-face-replenishment$' <<<"$a2a_route" || fail "the a2a route must match /api/a2a/pick-face-replenishment"
+# A2A is off by default: no a2a resource renders unless asked for.
+if render_only a2a-deployment.yaml "${base[@]}" 2>/dev/null | grep -q 'kind: Deployment'; then fail "the a2a Deployment rendered with default values"; fi
+
 # Analytics (ADR 0008): projector (writer) + reports (reader) on a separate DSN.
 analytics=("${base[@]}" --set analytics.enabled=true --set analytics.url=postgres://u@example.invalid:5432/analytics)
 proj="$(render_only projector-deployment.yaml "${analytics[@]}")"
@@ -252,9 +299,9 @@ grep -q 'app.kubernetes.io/component: frontend' <<<"$frontend_dep" || fail "the 
 grep -q 'app.kubernetes.io/component: frontend' <<<"$frontend_svc" || fail "the frontend Service was not rendered with frontend.enabled=true"
 grep -q 'type: ClusterIP' <<<"$frontend_svc" || fail "the frontend Service must stay ClusterIP"
 if grep -Eq 'name: (DATABASE_URL|KAFKA_BROKERS)$' <<<"$frontend_dep"; then fail "the frontend Deployment must not get database/Kafka env (it serves static bytes)"; fi
-together="$(render "${base[@]}" --set mcp.enabled=true --set analytics.enabled=true --set analytics.url=postgres://u@h/a --set frontend.enabled=true)"
+together="$(render "${base[@]}" --set mcp.enabled=true --set a2a.enabled=true --set analytics.enabled=true --set analytics.url=postgres://u@h/a --set frontend.enabled=true)"
 if grep -E 'kind: (Ingress|HTTPRoute)' <<<"$together" | grep -q frontend; then fail "frontend routing must not live in this chart (the Nginx web gateway owns it)"; fi
-for component in api mcp analytics-projector analytics-reports frontend; do
+for component in api mcp a2a analytics-projector analytics-reports frontend; do
   grep -q "app.kubernetes.io/component: $component\$" <<<"$together" || fail "$component was not rendered when every component is enabled"
 done
 

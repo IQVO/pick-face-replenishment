@@ -78,13 +78,15 @@ type cancelledData struct {
 }
 
 type policyDeclaredData struct {
-	SiteID     string `json:"site_id"`
-	SKU        string `json:"sku"`
-	MinQty     int64  `json:"min_qty"`
-	MaxQty     int64  `json:"max_qty"`
-	Multiple   int64  `json:"multiple"`
-	Version    int64  `json:"version"`
-	DeclaredAt string `json:"declared_at"`
+	SiteID   string `json:"site_id"`
+	SKU      string `json:"sku"`
+	MinQty   int64  `json:"min_qty"`
+	MaxQty   int64  `json:"max_qty"`
+	Multiple int64  `json:"multiple"`
+	// MultipleSource is DECLARED or PACK_DERIVED; absent on a fact that does not say.
+	MultipleSource string `json:"multiple_source,omitempty"`
+	Version        int64  `json:"version"`
+	DeclaredAt     string `json:"declared_at"`
 }
 
 func ts(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
@@ -149,7 +151,7 @@ func policyFact(d policy.Declaration) fact {
 		analyticsOnly: true,
 		data: policyDeclaredData{
 			SiteID: d.SiteID, SKU: d.SKU, MinQty: d.MinQty, MaxQty: d.MaxQty, Multiple: d.Multiple,
-			Version: d.Version, DeclaredAt: ts(d.DeclaredAt),
+			MultipleSource: multipleSource(d.Source), Version: d.Version, DeclaredAt: ts(d.DeclaredAt),
 		},
 	}
 }
@@ -205,4 +207,14 @@ func message(f fact, id string, st stream) (outbox.Message, error) {
 		Value:      value,
 		Headers:    []outbox.Header{{Key: ct.Key, Value: string(ct.Value)}},
 	}, nil
+}
+
+// multipleSource is the optional multiple_source of ReplenishmentPolicyDeclared:
+// present only for a PACK_DERIVED policy, so a DECLARED policy's payload stays
+// byte-identical to the one published before pack-derived multiples existed.
+func multipleSource(source policy.Source) string {
+	if source == policy.SourcePackDerived {
+		return string(source)
+	}
+	return ""
 }

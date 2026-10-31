@@ -14,6 +14,7 @@ sidebar_position: 1
 | Events | `apis/asyncapi.yaml` | Summarised on the [event catalogue](/docs/api-reference/events); every field on [Domain events](/docs/ddd/domain-events). |
 | Reports | `apis/openapi.yaml` (tag *Reports*) | `GET /reports/replenishment-funnel` and `GET /reports/freshness`, served by `cmd/pfr-reports` on `http://localhost:8092` (ADR 0008), not by `cmd/api`. |
 | MCP | `internal/adapters/inbound/mcp` (ADR 0007) | `cmd/mcp`, Streamable HTTP on `:8090` at `/mcp`: read-only tools `list_policies`, `get_policy`, `list_pick_faces`, `list_replenishments`, `get_replenishment`. Writes stay on REST. |
+| A2A | `internal/adapters/inbound/a2a` (ADR 0010) | `cmd/a2a`, JSON-RPC over HTTP on `:8093` at `/` and `/a2a`, Agent Card at `/.well-known/agent-card.json`: read-only skills `pick_face_status` and `replenishment_lookup`, rejections answered in-band as RFC 7807-shaped problems. Writes stay on REST. |
 
 ## Endpoints
 
