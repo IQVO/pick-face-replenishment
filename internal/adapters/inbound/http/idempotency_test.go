@@ -13,14 +13,40 @@ import (
 
 const key1 = "Idempotency-Key"
 
+// replayedHeader marks a replayed answer, and only a replay.
+const replayedHeader = "Idempotency-Replayed"
+
+// expectFirstExecution asserts r carries no replay marker.
+func expectFirstExecution(t *testing.T, r response) {
+	t.Helper()
+	if _, present := r.header[replayedHeader]; present {
+		t.Fatalf("a first execution carries %s: %v", replayedHeader, r.header)
+	}
+}
+
+// expectReplayOf asserts again is the byte-identical stored answer of first,
+// marked Idempotency-Replayed: true.
+func expectReplayOf(t *testing.T, first, again response) {
+	t.Helper()
+	expectFirstExecution(t, first)
+	if got := again.header.Get(replayedHeader); got != "true" {
+		t.Fatalf("replay %s = %q, want true (%v)", replayedHeader, got, again.header)
+	}
+	if again.status != first.status || again.raw != first.raw ||
+		again.header.Get("Location") != first.header.Get("Location") ||
+		again.contentType() != first.contentType() {
+		t.Fatalf("replay differs:\nfirst  %d %s %v\nreplay %d %s %v", first.status, first.raw, first.header, again.status, again.raw, again.header)
+	}
+}
+
 func TestPostsRequireAnIdempotencyKey(t *testing.T) {
 	f := newIdempotentFixture(t)
 	f.seed(t)
 	f.declare(t)
 	for _, tc := range []struct{ path, body string }{
 		{"/replenishments", raiseSKU1},
-		{"/replenishments/repl-test-001/cancel", ""},
-		{"/sites/SITE-1/evaluate", ""},
+		{"/replenishments/repl-test-001/cancellations", ""},
+		{"/sites/SITE-1/evaluations", ""},
 	} {
 		expectProblem(t, f.call(t, http.MethodPost, tc.path, tc.body), http.StatusBadRequest, "idempotency-key-required")
 	}
@@ -43,8 +69,9 @@ func TestReplayReturnsTheOriginalResponse(t *testing.T) {
 	f.declare(t)
 	first := f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-1")
 	again := f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-1")
-	if again.raw != first.raw || again.header.Get("Location") != first.header.Get("Location") || again.contentType() != "application/json" {
-		t.Fatalf("replay differs:\nfirst  %s %v\nreplay %s %v", first.raw, first.header, again.raw, again.header)
+	expectReplayOf(t, first, again)
+	if again.contentType() != "application/json" || again.header.Get("Location") == "" {
+		t.Fatalf("replay lost its headers: %v", again.header)
 	}
 	if f.openRequests(t) != 1 || len(f.events.RequestEvents()) != 1 {
 		t.Fatalf("replay raised again: open=%d events=%d", f.openRequests(t), len(f.events.RequestEvents()))
@@ -58,12 +85,17 @@ func TestSameKeyWithAnotherRequestIsRejected(t *testing.T) {
 	f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-1")
 	for _, tc := range []struct{ name, path, body string }{
 		{"other body", "/replenishments", `{"siteId":"SITE-1","sku":"SKU-2"}`},
-		{"other path", "/replenishments/repl-test-001/cancel", ""},
+		{"other path", "/replenishments/repl-test-001/cancellations", ""},
 		{"other whitespace", "/replenishments", `{"siteId":"SITE-1", "sku":"SKU-1"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			expectProblem(t, f.call(t, http.MethodPost, tc.path, tc.body, key1, "k-1"), http.StatusUnprocessableEntity, "idempotency-key-reused")
+			r := f.call(t, http.MethodPost, tc.path, tc.body, key1, "k-1")
+			expectProblem(t, r, http.StatusConflict, "idempotency-key-reused")
+			expectFirstExecution(t, r) // a reuse is not a replay
 		})
+	}
+	if f.openRequests(t) != 1 {
+		t.Fatalf("a reused key changed state: open=%d", f.openRequests(t))
 	}
 }
 
@@ -75,9 +107,7 @@ func TestA4xxAnswerIsStoredAndReplayed(t *testing.T) {
 	f.declare(t) // the world changed, but the key still means the rejection
 	again := f.call(t, http.MethodPost, "/replenishments", raiseSKU1, key1, "k-4xx")
 	expectProblem(t, again, http.StatusUnprocessableEntity, "no-policy")
-	if again.raw != first.raw {
-		t.Fatalf("replayed rejection differs: %s vs %s", first.raw, again.raw)
-	}
+	expectReplayOf(t, first, again)
 	fresh := f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-new")
 	if fresh.body["requestId"] == nil {
 		t.Fatalf("a new key must run: %s", fresh.raw)
@@ -105,7 +135,7 @@ func TestA4xxRollsBackWhatTheHandlerDid(t *testing.T) {
 	f := newIdempotentFixture(t)
 	f.seed(t)
 	f.declare(t)
-	f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluate", "", http.StatusOK, key1, "k-eval")
+	f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluations", "", http.StatusOK, key1, "k-eval")
 	if f.openRequests(t) != 1 {
 		t.Fatalf("evaluate should have raised one request, open=%d", f.openRequests(t))
 	}
@@ -120,7 +150,7 @@ func TestStoreFailuresAreServerErrors(t *testing.T) {
 	t.Run("lookup fails", func(t *testing.T) {
 		f := newIdempotentFixture(t)
 		f.store.lookupErr = errDB
-		expectProblem(t, f.call(t, http.MethodPost, "/sites/SITE-1/evaluate", "", key1, "k"), http.StatusInternalServerError, "internal-error")
+		expectProblem(t, f.call(t, http.MethodPost, "/sites/SITE-1/evaluations", "", key1, "k"), http.StatusInternalServerError, "internal-error")
 	})
 	t.Run("save fails after a success rolls the effects back", func(t *testing.T) {
 		f := newIdempotentFixture(t)
@@ -165,6 +195,9 @@ func TestTheLoserOfARaceReplaysTheWinnersAnswer(t *testing.T) {
 	if r.body["requestId"] != "repl-winner" || r.header.Get("Location") != "/replenishments/repl-winner" {
 		t.Fatalf("the loser did not replay the winner: %s %v", r.raw, r.header)
 	}
+	if r.header.Get(replayedHeader) != "true" {
+		t.Fatalf("the loser's answer is a replay and must say so: %v", r.header)
+	}
 	if f.openRequests(t) != 0 {
 		t.Fatal("the loser's own effects were not rolled back")
 	}
@@ -197,10 +230,17 @@ func TestConcurrentRequestsWithOneKeyRunOnce(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	firstRuns := 0
 	for i, r := range results {
 		if r.status != http.StatusCreated || r.raw != results[0].raw {
 			t.Fatalf("result %d = %d %s, want the original 201 %s", i, r.status, r.raw, results[0].raw)
 		}
+		if r.header.Get(replayedHeader) == "" {
+			firstRuns++
+		}
+	}
+	if firstRuns != 1 {
+		t.Fatalf("%d of %d answers were first executions, want exactly one (the rest replay)", firstRuns, n)
 	}
 	if f.openRequests(t) != 1 || len(f.events.RequestEvents()) != 1 {
 		t.Fatalf("the key ran more than once: open=%d events=%d", f.openRequests(t), len(f.events.RequestEvents()))
@@ -211,15 +251,17 @@ func TestCancelAndEvaluateReplay(t *testing.T) {
 	f := newIdempotentFixture(t)
 	f.seed(t)
 	f.declare(t)
-	eval1 := f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluate", "", http.StatusOK, key1, "k-eval")
-	eval2 := f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluate", "", http.StatusOK, key1, "k-eval")
-	if eval1.raw != eval2.raw || eval1.body["raised"] != 1.0 {
-		t.Fatalf("evaluate replay: %s vs %s", eval1.raw, eval2.raw)
+	eval1 := f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluations", "", http.StatusOK, key1, "k-eval")
+	eval2 := f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluations", "", http.StatusOK, key1, "k-eval")
+	expectReplayOf(t, eval1, eval2)
+	if eval1.body["raised"] != 1.0 {
+		t.Fatalf("evaluate raised: %s", eval1.raw)
 	}
-	c1 := f.mustCall(t, http.MethodPost, "/replenishments/repl-test-001/cancel", "", http.StatusOK, key1, "k-cancel")
-	c2 := f.mustCall(t, http.MethodPost, "/replenishments/repl-test-001/cancel", "", http.StatusOK, key1, "k-cancel")
-	if c1.raw != c2.raw || c1.body["state"] != "Cancelled" {
-		t.Fatalf("cancel replay: %s vs %s", c1.raw, c2.raw)
+	c1 := f.mustCall(t, http.MethodPost, "/replenishments/repl-test-001/cancellations", "", http.StatusOK, key1, "k-cancel")
+	c2 := f.mustCall(t, http.MethodPost, "/replenishments/repl-test-001/cancellations", "", http.StatusOK, key1, "k-cancel")
+	expectReplayOf(t, c1, c2)
+	if c1.body["state"] != "Cancelled" {
+		t.Fatalf("cancel: %s", c1.raw)
 	}
 }
 

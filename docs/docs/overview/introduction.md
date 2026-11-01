@@ -43,7 +43,7 @@ It does **not** own stock levels, slot assignments or locations. Those arrive as
    `ReplenishmentPolicyDeclared`.
 2. **See every pick face** with its status (`BELOW_MIN`, `OK`, `NO_SOURCE`, `NO_POLICY`) through `GET /pick-faces`.
 3. **Raise requests** three ways: automatically when a bin level or a new forward map is applied, with the sweep
-   `POST /sites/{siteId}/evaluate`, or by hand with `POST /replenishments`.
+   `POST /sites/{siteId}/evaluations`, or by hand with `POST /replenishments`.
 4. **Complete requests** from inventory-storage's `StockRelocated` (reason `REPLENISHMENT`, `source_ref` = the request
    id), recording the units actually moved.
 5. **Cancel requests** on the operator's word, when a newer approved slot plan drops the assignment, or when the policy

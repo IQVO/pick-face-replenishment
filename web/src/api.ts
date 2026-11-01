@@ -179,7 +179,7 @@ export function requestReplenishment(body: RequestReplenishmentBody): Promise<Re
   return request<Replenishment>("POST", "/replenishments", { body });
 }
 
-/** POST /replenishments/{requestId}/cancel (409 replenishment-not-open). */
+/** POST /replenishments/{requestId}/cancellations (409 replenishment-not-open). */
 export function cancelReplenishment(requestId: string): Promise<Replenishment> {
-  return request<Replenishment>("POST", `/replenishments/${seg(requestId)}/cancel`);
+  return request<Replenishment>("POST", `/replenishments/${seg(requestId)}/cancellations`);
 }

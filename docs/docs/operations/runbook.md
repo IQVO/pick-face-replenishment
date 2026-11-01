@@ -199,12 +199,12 @@ protection for those keys. Do **not** delete `processed_events` rows of messages
 
 | Procedure | Steps |
 | --- | --- |
-| Re-run detection for a site | `POST /sites/{siteId}/evaluate` with a fresh `Idempotency-Key`. It converges: faces with an open request are `alreadyOpen`. There is no scheduler: nothing re-evaluates a site periodically, requests are raised when a bin level or forward map is applied, or by this call. |
+| Re-run detection for a site | `POST /sites/{siteId}/evaluations` with a fresh `Idempotency-Key`. It converges: faces with an open request are `alreadyOpen`. There is no scheduler: nothing re-evaluates a site periodically, requests are raised when a bin level or forward map is applied, or by this call. |
 | Rebuild the local copies | Stop the service, truncate the copy tables you want rebuilt (`bin_stock_levels`, `forward_assignments`, `forward_assignment_maps`, `zones`, `locations`), delete the matching `processed_events` rows (`consumer` is `pick-face-replenishment-inventory`, `-slotting` or `-layout`; otherwise the replay is all `duplicate`), reset the group offsets to the beginning with your Kafka tooling, start. The consumers replay the topic from the first offset and the levels converge because they are absolute and versioned. Until `bin_stock_levels` is repopulated pick faces read as level 0 (see Troubleshooting). |
 | Change a group id | Stop, change `*_CONSUMER_GROUP`, start. The new group has no committed offset and replays from the first offset; the claims in `processed_events` make already-applied events `duplicate`. |
 | Rotate the database password | Update `DATABASE_URL` (and `MIGRATIONS_DATABASE_URL`) in the secret and restart; the pool is opened at boot only. |
 | Add a forward or reserve zone code | Set `FORWARD_ZONE_CODES` or `RESERVE_ZONE_CODES` and restart. |
-| Cancel a stuck request | `POST /replenishments/{requestId}/cancel`. A request already released as floor work is not recalled by this service. |
+| Cancel a stuck request | `POST /replenishments/{requestId}/cancellations`. A request already released as floor work is not recalled by this service. |
 
 ## Scaling notes
 
@@ -215,5 +215,5 @@ protection for those keys. Do **not** delete `processed_events` rows of messages
 - **Database.** Each process holds at most 10 connections (`MaxConns`) with a 5 s `statement_timeout`; size Postgres (or
   PgBouncer) for replicas times 10. The chart has an HPA (`autoscaling.api`, off by default); the relay and the
   version-guarded writes are safe with N > 1, which has not been load-tested.
-- **Sweep cost.** `POST /sites/{siteId}/evaluate` assesses every forward assignment of the site one unit of work at a
+- **Sweep cost.** `POST /sites/{siteId}/evaluations` assesses every forward assignment of the site one unit of work at a
   time; `GET /pick-faces` assesses faces in order until a page is full. Both are linear in the number of faces.

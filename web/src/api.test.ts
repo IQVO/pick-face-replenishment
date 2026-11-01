@@ -39,12 +39,12 @@ describe("api", () => {
   it("mints a fresh Idempotency-Key per POST", async () => {
     const api = mockApi({
       "POST /replenishments": json(replenishment(), 201),
-      "POST /replenishments/repl-1/cancel": json(replenishment({ state: "Cancelled" })),
+      "POST /replenishments/repl-1/cancellations": json(replenishment({ state: "Cancelled" })),
     });
     await requestReplenishment({ siteId: "SITE-1", sku: "SKU-1" });
     await requestReplenishment({ siteId: "SITE-1", sku: "SKU-1", quantity: 6 });
     await cancelReplenishment("repl-1");
-    const keys = [...api.to("POST /replenishments"), ...api.to("POST /replenishments/repl-1/cancel")].map(
+    const keys = [...api.to("POST /replenishments"), ...api.to("POST /replenishments/repl-1/cancellations")].map(
       (c) => c.headers["Idempotency-Key"],
     );
     expect(keys).toHaveLength(3);
