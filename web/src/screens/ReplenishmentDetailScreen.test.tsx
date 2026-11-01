@@ -39,26 +39,26 @@ describe("ReplenishmentDetailScreen", () => {
     const api = mockApi({
       [`GET /replenishments/${REQUEST_ID}`]: () =>
         json(replenishment({ state, ...(state === "Cancelled" ? { cancelReason: "OPERATOR" as const } : {}) })),
-      [`POST /replenishments/${REQUEST_ID}/cancel`]: () => {
+      [`POST /replenishments/${REQUEST_ID}/cancellations`]: () => {
         state = "Cancelled";
         return json(replenishment({ state: "Cancelled" }));
       },
     });
     mount();
     await userEvent.click(await screen.findByRole("button", { name: "Cancel request…" }));
-    expect(api.to(`POST /replenishments/${REQUEST_ID}/cancel`)).toHaveLength(0);
+    expect(api.to(`POST /replenishments/${REQUEST_ID}/cancellations`)).toHaveLength(0);
     await userEvent.click(screen.getByRole("button", { name: "Confirm cancellation" }));
     expect(await screen.findByText("Replenishment cancelled.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("button", { name: /Cancel request/ })).not.toBeInTheDocument());
     expect(screen.getByText("OPERATOR")).toBeInTheDocument();
-    const [post] = api.to(`POST /replenishments/${REQUEST_ID}/cancel`);
+    const [post] = api.to(`POST /replenishments/${REQUEST_ID}/cancellations`);
     expect(post.headers["Idempotency-Key"]).toMatch(UUID);
   });
 
   it("keeps the request and explains a 409 replenishment-not-open", async () => {
     mockApi({
       [`GET /replenishments/${REQUEST_ID}`]: json(replenishment()),
-      [`POST /replenishments/${REQUEST_ID}/cancel`]: problem(409, "replenishment-not-open", "Not open", "already completed"),
+      [`POST /replenishments/${REQUEST_ID}/cancellations`]: problem(409, "replenishment-not-open", "Not open", "already completed"),
     });
     mount();
     await userEvent.click(await screen.findByRole("button", { name: "Cancel request…" }));

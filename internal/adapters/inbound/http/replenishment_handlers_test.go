@@ -141,7 +141,7 @@ func TestListReplenishmentsPaginates(t *testing.T) {
 	f.seed(t)
 	f.declare(t)
 	f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated)
-	f.mustCall(t, http.MethodPost, "/replenishments/repl-test-001/cancel", "", http.StatusOK)
+	f.mustCall(t, http.MethodPost, "/replenishments/repl-test-001/cancellations", "", http.StatusOK)
 	f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated)
 	first := f.mustCall(t, http.MethodGet, "/replenishments?limit=1", "", http.StatusOK)
 	cursor, _ := first.body["nextCursor"].(string)
@@ -164,15 +164,15 @@ func TestCancelReplenishment(t *testing.T) {
 	f.seed(t)
 	f.declare(t)
 	f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated)
-	r := f.mustCall(t, http.MethodPost, "/replenishments/repl-test-001/cancel", "", http.StatusOK)
+	r := f.mustCall(t, http.MethodPost, "/replenishments/repl-test-001/cancellations", "", http.StatusOK)
 	want := map[string]any{"state": "Cancelled", "cancelReason": "OPERATOR", "cancelledAt": "2026-10-17T09:30:00Z", "version": 2.0}
 	for k, v := range want {
 		if r.body[k] != v {
 			t.Fatalf("body[%s] = %v, want %v (%s)", k, r.body[k], v, r.raw)
 		}
 	}
-	expectProblem(t, f.call(t, http.MethodPost, "/replenishments/repl-test-001/cancel", ""), http.StatusConflict, "replenishment-not-open")
-	expectProblem(t, f.call(t, http.MethodPost, "/replenishments/repl-unknown/cancel", ""), http.StatusNotFound, "replenishment-not-found")
+	expectProblem(t, f.call(t, http.MethodPost, "/replenishments/repl-test-001/cancellations", ""), http.StatusConflict, "replenishment-not-open")
+	expectProblem(t, f.call(t, http.MethodPost, "/replenishments/repl-unknown/cancellations", ""), http.StatusNotFound, "replenishment-not-found")
 }
 
 func TestRequestIDIsValidated(t *testing.T) {
@@ -180,7 +180,7 @@ func TestRequestIDIsValidated(t *testing.T) {
 	for _, path := range []string{"/replenishments/nope", "/replenishments/repl-", "/replenishments/repl-a%2Fb", "/replenishments/repl-a%20b"} {
 		expectProblem(t, f.call(t, http.MethodGet, path, ""), http.StatusBadRequest, "invalid-request-id")
 	}
-	expectProblem(t, f.call(t, http.MethodPost, "/replenishments/nope/cancel", ""), http.StatusBadRequest, "invalid-request-id")
+	expectProblem(t, f.call(t, http.MethodPost, "/replenishments/nope/cancellations", ""), http.StatusBadRequest, "invalid-request-id")
 	expectProblem(t, f.call(t, http.MethodGet, "/replenishments/repl-"+strings.Repeat("a", 60), ""), http.StatusBadRequest, "invalid-request-id")
 }
 
@@ -188,7 +188,7 @@ func TestEvaluateSiteConverges(t *testing.T) {
 	f := newFixture(t)
 	f.seed(t)
 	f.declare(t)
-	first := f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluate", "", http.StatusOK)
+	first := f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluations", "", http.StatusOK)
 	wantFirst := map[string]any{
 		"siteId": "SITE-1", "evaluatedAt": "2026-10-17T09:30:00Z",
 		"evaluated": 2.0, "raised": 1.0, "healthy": 0.0, "alreadyOpen": 0.0, "noPolicy": 1.0, "noSource": 0.0,
@@ -201,7 +201,7 @@ func TestEvaluateSiteConverges(t *testing.T) {
 	if ids := first.body["requestIds"].([]any); len(ids) != 1 || ids[0] != "repl-test-001" {
 		t.Fatalf("requestIds = %v", ids)
 	}
-	second := f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluate", "", http.StatusOK)
+	second := f.mustCall(t, http.MethodPost, "/sites/SITE-1/evaluations", "", http.StatusOK)
 	if second.body["raised"] != 0.0 || second.body["alreadyOpen"] != 1.0 {
 		t.Fatalf("second sweep raised again: %s", second.raw)
 	}
@@ -212,9 +212,9 @@ func TestEvaluateSiteConverges(t *testing.T) {
 
 func TestEvaluateSiteValidatesTheSite(t *testing.T) {
 	f := newFixture(t)
-	expectProblem(t, f.call(t, http.MethodPost, "/sites/%20/evaluate", ""), http.StatusBadRequest, "invalid-site-id")
-	expectProblem(t, f.call(t, http.MethodPost, "/sites/"+strings.Repeat("s", 65)+"/evaluate", ""), http.StatusBadRequest, "invalid-site-id")
-	empty := f.mustCall(t, http.MethodPost, "/sites/SITE-9/evaluate", "", http.StatusOK)
+	expectProblem(t, f.call(t, http.MethodPost, "/sites/%20/evaluations", ""), http.StatusBadRequest, "invalid-site-id")
+	expectProblem(t, f.call(t, http.MethodPost, "/sites/"+strings.Repeat("s", 65)+"/evaluations", ""), http.StatusBadRequest, "invalid-site-id")
+	empty := f.mustCall(t, http.MethodPost, "/sites/SITE-9/evaluations", "", http.StatusOK)
 	if empty.body["evaluated"] != 0.0 {
 		t.Fatalf("unknown site: %s", empty.raw)
 	}
@@ -288,7 +288,7 @@ func TestUnexpectedErrorsAre500ProblemsWithoutLeaks(t *testing.T) {
 		{http.MethodGet, "/replenishments", ""},
 		{http.MethodGet, "/replenishments/repl-test-001", ""},
 		{http.MethodPost, "/replenishments", raiseSKU1},
-		{http.MethodPost, "/sites/SITE-1/evaluate", ""},
+		{http.MethodPost, "/sites/SITE-1/evaluations", ""},
 	} {
 		r := f.call(t, tc.method, tc.path, tc.body)
 		expectProblem(t, r, http.StatusInternalServerError, "internal-error")

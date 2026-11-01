@@ -40,6 +40,12 @@ type pgService struct {
 func bootPostgres(t *testing.T) pgService { return bootPostgresZones(t, usecases.ZoneConfig{}) }
 
 func bootPostgresZones(t *testing.T, zones usecases.ZoneConfig) pgService {
+	return bootPostgresWith(t, zones, nil)
+}
+
+// bootPostgresWith is bootPostgresZones with a hook that may wrap the adapters
+// (fault injection) before the server is built over them.
+func bootPostgresWith(t *testing.T, zones usecases.ZoneConfig, wrap func(*adapters)) pgService {
 	t.Helper()
 	url := pgtest.EmptyURL(t)
 	ad, closeAdapters, err := buildAdapters(t.Context(), url, url, discardLogger())
@@ -49,6 +55,9 @@ func bootPostgresZones(t *testing.T, zones usecases.ZoneConfig) pgService {
 	t.Cleanup(closeAdapters)
 	pool := pgtest.Open(t, url)
 	seedPickFace(t, ad)
+	if wrap != nil {
+		wrap(&ad)
+	}
 	srv := httptest.NewServer(inboundhttp.NewRouter(buildServer(ad, zones, &inboundhttp.Readiness{})))
 	t.Cleanup(srv.Close)
 	return pgService{srv: srv, ad: ad, count: func(table string) int { return pgtest.Count(t, pool, table) }}
@@ -139,12 +148,19 @@ func TestPostgresModeMigratesEnforcesIdempotencyAndWritesTheOutbox(t *testing.T)
 	if status != http.StatusCreated {
 		t.Fatalf("raise = %d %s", status, body)
 	}
-	status2, body2, hdr2 := postWithKey(t, srv, "/replenishments", raise, "k-1")
-	if status2 != status || body2 != body || hdr2.Get("Location") != hdr.Get("Location") {
-		t.Fatalf("replay differs: %d %s %v", status2, body2, hdr2)
+	if _, replayed := hdr["Idempotency-Replayed"]; replayed {
+		t.Fatalf("a first execution carries Idempotency-Replayed: %v", hdr)
 	}
-	if status, body, _ := postWithKey(t, srv, "/replenishments", `{"siteId":"SITE-1","sku":"SKU-2"}`, "k-1"); status != http.StatusUnprocessableEntity || !strings.Contains(body, "idempotency-key-reused") {
-		t.Fatalf("reused key = %d %s", status, body)
+	status2, body2, hdr2 := postWithKey(t, srv, "/replenishments", raise, "k-1")
+	if status2 != status || body2 != body || hdr2.Get("Location") != hdr.Get("Location") || hdr2.Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("replay differs or is not marked: %d %s %v", status2, body2, hdr2)
+	}
+	status3, body3, hdr3 := postWithKey(t, srv, "/replenishments", `{"siteId":"SITE-1","sku":"SKU-2"}`, "k-1")
+	if status3 != http.StatusConflict || !strings.Contains(body3, "/idempotency-key-reused") {
+		t.Fatalf("reused key = %d %s, want 409 idempotency-key-reused", status3, body3)
+	}
+	if _, replayed := hdr3["Idempotency-Replayed"]; replayed {
+		t.Fatalf("a key reuse is not a replay: %v", hdr3)
 	}
 	// policy declared (analytics) + request (events + analytics) = 3 rows.
 	if n := svc.count("outbox_events"); n != 3 {
@@ -161,15 +177,19 @@ func TestPostgresRejectionLeavesNoEffectAndReplays(t *testing.T) {
 	svc := bootPostgres(t)
 	srv := svc.srv
 	const raise = `{"siteId":"SITE-1","sku":"SKU-1"}` // no policy declared yet
-	status, body, _ := postWithKey(t, srv, "/replenishments", raise, "k-no-policy")
+	status, body, first := postWithKey(t, srv, "/replenishments", raise, "k-no-policy")
 	if status != http.StatusUnprocessableEntity || !strings.Contains(body, "/no-policy") {
 		t.Fatalf("raise without a policy = %d %s", status, body)
+	}
+	if _, replayed := first["Idempotency-Replayed"]; replayed {
+		t.Fatalf("a first execution carries Idempotency-Replayed: %v", first)
 	}
 	if n := svc.count("replenishment_requests"); n != 0 {
 		t.Fatalf("requests = %d after a rejection", n)
 	}
-	if status2, body2, _ := postWithKey(t, srv, "/replenishments", raise, "k-no-policy"); status2 != status || body2 != body {
-		t.Fatalf("rejection replay differs: %d %s", status2, body2)
+	status2, body2, again := postWithKey(t, srv, "/replenishments", raise, "k-no-policy")
+	if status2 != status || body2 != body || again.Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("rejection replay differs or is not marked: %d %s %v", status2, body2, again)
 	}
 }
 
@@ -186,6 +206,7 @@ func TestPostgresConcurrentRequestsWithOneKeyRunOnce(t *testing.T) {
 	type result struct {
 		status int
 		body   string
+		hdr    http.Header
 	}
 	results := make([]result, n)
 	var wg sync.WaitGroup
@@ -193,14 +214,21 @@ func TestPostgresConcurrentRequestsWithOneKeyRunOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i].status, results[i].body, _ = postWithKey(t, srv, "/replenishments", `{"siteId":"SITE-1","sku":"SKU-1"}`, "k-race")
+			results[i].status, results[i].body, results[i].hdr = postWithKey(t, srv, "/replenishments", `{"siteId":"SITE-1","sku":"SKU-1"}`, "k-race")
 		}()
 	}
 	wg.Wait()
+	firstRuns := 0
 	for i, r := range results {
 		if r.status != http.StatusCreated || r.body != results[0].body {
 			t.Fatalf("result %d = %d %s, want the original 201 %s", i, r.status, r.body, results[0].body)
 		}
+		if r.hdr.Get("Idempotency-Replayed") == "" {
+			firstRuns++
+		}
+	}
+	if firstRuns != 1 {
+		t.Fatalf("%d of %d answers were first executions, want exactly one (the rest replay)", firstRuns, n)
 	}
 	if got := svc.count("replenishment_requests"); got != 1 {
 		t.Fatalf("requests = %d, want 1", got)
