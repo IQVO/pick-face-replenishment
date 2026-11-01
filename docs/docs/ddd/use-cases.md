@@ -19,10 +19,10 @@ transaction. There is **no scheduler and no MCP trigger**: a use case is started
 | 4 | `ListPolicies` | REST `GET /policies` | none | none |
 | 5 | `ListPickFaces` | REST `GET /pick-faces` | none | none |
 | 6 | `RaiseManualRequest` | REST `POST /replenishments` | `replenishment_requests` | `ReplenishmentRequested` |
-| 7 | `CancelRequest` | REST `POST /replenishments/{requestId}/cancel` | `replenishment_requests` | `ReplenishmentCancelled` (`OPERATOR`) |
+| 7 | `CancelRequest` | REST `POST /replenishments/{requestId}/cancellations` | `replenishment_requests` | `ReplenishmentCancelled` (`OPERATOR`) |
 | 8 | `GetRequest` | REST `GET /replenishments/{requestId}` | none | none |
 | 9 | `ListRequests` | REST `GET /replenishments` | none | none |
-| 10 | `EvaluateSite` | REST `POST /sites/{siteId}/evaluate` | `replenishment_requests` | `ReplenishmentRequested` per request raised |
+| 10 | `EvaluateSite` | REST `POST /sites/{siteId}/evaluations` | `replenishment_requests` | `ReplenishmentRequested` per request raised |
 | 11 | `ApplyBinLevel` | Kafka `BinStockLevelChanged` | `bin_stock_levels`, `processed_events`, maybe a request | `ReplenishmentRequested` when the face is now low |
 | 12 | `ApplyRelocation` | Kafka `StockRelocated` | `replenishment_requests`, `processed_events` | `ReplenishmentCompleted` |
 | 13 | `ApplyForwardAssignmentMap` | Kafka `SlotPlanApproved` | `forward_assignments`, `forward_assignment_maps`, `processed_events`, requests | `ReplenishmentCancelled` (`ASSIGNMENT_CHANGED`), `ReplenishmentRequested` for new faces |

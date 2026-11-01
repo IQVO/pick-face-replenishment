@@ -40,7 +40,7 @@ with `cd docs && npm ci && npm run build`.
 | DDD artifacts | [Core domain chart](docs/docs/ddd/core-domain-chart.md), [Bounded context canvas](docs/docs/ddd/bounded-context-canvas.md), [Context map](docs/docs/ddd/context-map.md), [Aggregate design canvas](docs/docs/ddd/aggregate-design-canvas.md), [Domain message flow](docs/docs/ddd/domain-message-flow.md), [EventStorming](docs/docs/ddd/eventstorming.md), [Class diagrams](docs/docs/ddd/class-diagram.md), [Entity-relationship](docs/docs/ddd/entity-relationship.md), [Sequence diagrams](docs/docs/ddd/sequence-diagrams.md), [Domain events](docs/docs/ddd/domain-events.md) |
 | API reference | [API overview](docs/docs/api-reference/overview.md), [Event catalogue](docs/docs/api-reference/events.md), `apis/openapi.yaml`, `apis/asyncapi.yaml` |
 | Ecosystem | [Integration](docs/docs/ecosystem/integration.md) |
-| Decisions | [ADR index](docs/adr/index.md) — ADRs 0001 to 0010 |
+| Decisions | [ADR index](docs/adr/index.md) — ADRs 0001 to 0011 |
 
 ---
 
@@ -74,7 +74,7 @@ What the context does, functionally:
   versioned with `If-Match`).
 - Raises a replenishment request when a pick face's projected level reaches
   its minimum: from a consumed event, from the sweep
-  `POST /sites/{siteId}/evaluate`, or by hand with `POST /replenishments`.
+  `POST /sites/{siteId}/evaluations`, or by hand with `POST /replenishments`.
   The source is the fullest reserve bin (pack-aware: a request can carry
   multiple pack-derived units, ADR 0009).
 - Completes the request from inventory-storage's `StockRelocated` (reason
@@ -226,11 +226,11 @@ operations over eleven paths:
 | GET | `/policies/{siteId}/{sku}` | Get one policy |
 | DELETE | `/policies/{siteId}/{sku}` | Remove the policy |
 | GET | `/pick-faces` | The forward pick faces with stock, policy bounds, open request and status (`BELOW_MIN`, `OK`, `NO_SOURCE`, `NO_POLICY`) |
-| POST | `/replenishments` | Raise a request by hand. **All three POSTs are wrapped by the fleet `Idempotency-Key` middleware** (same key + body replays the original response) |
+| POST | `/replenishments` | Raise a request by hand. **All three POSTs are wrapped by the fleet `Idempotency-Key` middleware** (same key + method + path + body replays the original response with `Idempotency-Replayed: true`; the same key with anything else is `409 idempotency-key-reused`) |
 | GET | `/replenishments` | List requests (newest first) |
 | GET | `/replenishments/{requestId}` | One request |
-| POST | `/replenishments/{requestId}/cancel` | Cancel a request |
-| POST | `/sites/{siteId}/evaluate` | Sweep: evaluate every pick face of a site |
+| POST | `/replenishments/{requestId}/cancellations` | Cancel a request |
+| POST | `/sites/{siteId}/evaluations` | Sweep: evaluate every pick face of a site |
 | GET | `/healthz`, `/readyz` | liveness; readiness (drain gate + Postgres + Kafka) |
 | GET | `/reports/replenishment-funnel`, `/reports/freshness` | analytics — served by `cmd/pfr-reports`, not `cmd/api` |
 
@@ -371,8 +371,8 @@ next version and publishes the chart.
 
 ## Architecture Decision Records
 
-The ADR index lives at [docs/adr/index.md](docs/adr/index.md) — 10 decisions
-(0001–0010), from the bounded context to the A2A inbound adapter.
+The ADR index lives at [docs/adr/index.md](docs/adr/index.md) — 11 decisions
+(0001–0011), from the bounded context to the fleet REST API guideline.
 
 ## License
 
