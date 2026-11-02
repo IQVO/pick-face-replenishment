@@ -253,7 +253,6 @@ func (d Deps) getReplenishment(ctx context.Context, in getReplenishmentInput) (r
 // fails the build on any write-verb name (docs/adr/0007).
 func (d Deps) registerTools(server *mcp.Server) {
 	closedWorld := false
-	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld}
 
 	addTool(server, &mcp.Tool{
 		Name: "list_policies",
@@ -262,7 +261,9 @@ func (d Deps) registerTools(server *mcp.Server) {
 			"multiple (replenish in multiples of this), version and declared_at. Pass the returned next_cursor to get the " +
 			"next page; it is absent on the last page. Read-only; a bad limit fails with invalid-limit and a bad cursor " +
 			"with invalid-cursor.",
-		Annotations: readOnly,
+		// The annotations stay inline: the authority fitness sensor reads
+		// ReadOnlyHint statically, and a shared variable would hide it.
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
 		Meta:        authorityMeta(authorityL1),
 	}, d.listPolicies)
 
@@ -270,7 +271,9 @@ func (d Deps) registerTools(server *mcp.Server) {
 		Name: "get_policy",
 		Description: "Read the replenishment policy of one site and SKU: min_qty, max_qty, multiple, version and declared_at. " +
 			"Read-only; fails with policy-not-found when no policy is declared and invalid-site-id or invalid-sku for a blank id.",
-		Annotations: readOnly,
+		// The annotations stay inline: the authority fitness sensor reads
+		// ReadOnlyHint statically, and a shared variable would hide it.
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
 		Meta:        authorityMeta(authorityL1),
 	}, d.getPolicy)
 
@@ -282,7 +285,9 @@ func (d Deps) registerTools(server *mcp.Server) {
 			"is at or below the minimum), OK, NO_SOURCE (below minimum but no reserve bin can supply it) or NO_POLICY. " +
 			"Optionally only one status. Levels are the event-fed local copy. Read-only; fails with invalid-site-id for a " +
 			"blank site, invalid-status for an unknown status, invalid-limit and invalid-cursor.",
-		Annotations: readOnly,
+		// The annotations stay inline: the authority fitness sensor reads
+		// ReadOnlyHint statically, and a shared variable would hide it.
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
 		Meta:        authorityMeta(authorityL1),
 	}, d.listPickFaces)
 
@@ -293,7 +298,9 @@ func (d Deps) registerTools(server *mcp.Server) {
 			"forward_bin, source_bin, quantity, priority, state, policy_min, policy_max, requested_at, the completion or " +
 			"cancellation instant and reason when they happened, and version. Pass the returned next_cursor for the next " +
 			"page. Read-only; fails with invalid-state, invalid-limit or invalid-cursor.",
-		Annotations: readOnly,
+		// The annotations stay inline: the authority fitness sensor reads
+		// ReadOnlyHint statically, and a shared variable would hide it.
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
 		Meta:        authorityMeta(authorityL1),
 	}, d.listReplenishments)
 
@@ -303,7 +310,9 @@ func (d Deps) registerTools(server *mcp.Server) {
 			"quantity once completed, priority, state (Requested, Completed or Cancelled), the policy min and max it was " +
 			"raised under, requested_at, completed_at or cancelled_at with cancel_reason, and version. Read-only; fails " +
 			"with replenishment-not-found for an unknown id and invalid-request-id for a malformed one.",
-		Annotations: readOnly,
+		// The annotations stay inline: the authority fitness sensor reads
+		// ReadOnlyHint statically, and a shared variable would hide it.
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
 		Meta:        authorityMeta(authorityL1),
 	}, d.getReplenishment)
 }
