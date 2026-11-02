@@ -31,9 +31,13 @@ info:
     slotting-optimization, and `ZoneRegistered`, `LocationSlotRegistered` and
     `LocationSlotDecommissioned` from facility-layout. Each feeds a durable local
     copy or closes a request (modes `INVENTORY_MODE`, `SLOTTING_MODE`,
-    `LAYOUT_MODE`, default `permissive`; consumer groups from
+    `LAYOUT_MODE`, `PACK_LEVEL_MODE`: default and only accepted value `kafka`,
+    `permissive` is rejected at boot; consumer groups are required, from
     `INVENTORY_CONSUMER_GROUP`, `SLOTTING_CONSUMER_GROUP`,
-    `LAYOUT_CONSUMER_GROUP`). The consumed messages below are the producers' own
+    `LAYOUT_CONSUMER_GROUP`, `PACK_LEVEL_CONSUMER_GROUP`). A message that fails
+    deterministically, or after the bounded retries, is published to
+    `<topic>.dlq` with `x-dlq-*` headers. `ProductPackLevelDeclared` and
+    `ProductPackLevelRetired` from product-master are consumed as well. The consumed messages below are the producers' own
     contracts, decoded independently here and never imported.
 
     **Envelope (mandatory).** CloudEvents 1.0, structured content mode, Kafka
@@ -132,7 +136,7 @@ channels:
       product-master's integration topic. Consumed for `ProductPackLevelDeclared`
       and `ProductPackLevelRetired` (packaging view: the eaches factor per pack
       level that min/max and request quantities are converted with), consumer
-      group from env `PRODUCT_MASTER_CONSUMER_GROUP`.
+      group from env `PACK_LEVEL_CONSUMER_GROUP` (when `PACK_LEVEL_MODE=kafka`).
     publish:
       operationId: applyProductMasterPackLevel
       summary: Apply product-master pack-level facts to the local packaging copy.
@@ -462,7 +466,8 @@ components:
         and Kafka key = `<bin>:<sku>`. `on_hand` and `reserved` are ABSOLUTE
         levels after the change, not deltas; `reserved` is the units of this bin
         bound by active reservations. Keep the highest `version` per bin and SKU
-        and ignore lower ones. Ignore unknown `reason` values.
+        and ignore lower ones. The consumer reads only `site_code`, `bin`, `sku`,
+        `on_hand`, `reserved` and `version`; `reason` is not read.
       contentType: application/cloudevents+json
       tags:
         - name: consumed
@@ -686,6 +691,9 @@ components:
         `urn:warehouse:product-master:events:ProductPackLevelDeclared:v1`; subject and
         key = the SKU. Produced by product-master; consumed into the local
         packaging view (pack level -> eaches factor for case-level scans).
+        NOTE: the consumer decodes camelCase keys (`unitsPerPack`, `effectiveFrom`),
+        while product-master's encoder writes snake_case (`units_per_pack`,
+        `effective_from`); see the PR notes.
       contentType: application/cloudevents+json
       tags:
         - name: consumed
@@ -715,17 +723,17 @@ components:
           properties:
             data:
               type: object
-              required: [sku, level, gtin, units_per_pack, is_orderable, is_despatch_unit, effective_from, version]
+              required: [sku, level, gtin, unitsPerPack, effectiveFrom, version]
               properties:
                 sku: { type: string }
                 level: { type: string, enum: [EACH, INNER, CASE, PALLET] }
                 gtin: { type: string, pattern: '^[0-9]{14}$' }
                 child_gtin: { type: string, pattern: '^[0-9]{14}$' }
                 qty_of_child: { type: integer, minimum: 2, maximum: 1000000, description: Absent for EACH. }
-                units_per_pack: { type: integer, minimum: 1, maximum: 1000000, description: Direct factor to eaches; 1 for EACH. }
+                unitsPerPack: { type: integer, minimum: 1, maximum: 1000000, description: "Direct factor to eaches; 1 for EACH. The consumer decodes this camelCase key (see the product-master note in the message)." }
                 is_orderable: { type: boolean }
                 is_despatch_unit: { type: boolean }
-                effective_from: { type: string, format: date-time }
+                effectiveFrom: { type: string, format: date-time, description: "camelCase key as decoded by the consumer." }
                 version: { type: integer, minimum: 1 }
     ProductPackLevelRetiredEvent:
       allOf:
@@ -734,13 +742,13 @@ components:
           properties:
             data:
               type: object
-              required: [sku, level, gtin, effective_to, reason, version]
+              required: [sku, level, gtin, effectiveTo, version]
               properties:
                 sku: { type: string }
                 level: { type: string, enum: [EACH, INNER, CASE, PALLET] }
                 gtin: { type: string, pattern: '^[0-9]{14}$' }
-                effective_to: { type: string, format: date-time }
-                reason: { type: string, minLength: 1, maxLength: 200 }
+                effectiveTo: { type: string, format: date-time, description: "camelCase key as decoded by the consumer." }
+                reason: { type: string, minLength: 1, maxLength: 200, description: "Sent by the producer; this consumer does not read it." }
                 version: { type: integer, minimum: 1 }
 
     CloudEventEnvelope:
@@ -833,7 +841,7 @@ components:
           properties:
             data:
               type: object
-              required: [site_code, bin, sku, on_hand, reserved, version, reason, occurred_at]
+              required: [site_code, bin, sku, on_hand, reserved, version]
               properties:
                 site_code: { type: string }
                 bin: { type: string }
@@ -841,8 +849,8 @@ components:
                 on_hand: { type: integer, minimum: 0, description: Absolute units in the bin after the change. }
                 reserved: { type: integer, minimum: 0, description: Units of this bin bound by active reservations. }
                 version: { type: integer, minimum: 1, description: Per-(bin, sku) monotonically increasing; keep the highest. }
-                reason: { type: string, description: "STOW, PICK, RELOCATE, REPLENISHMENT, COUNT, RESERVE, REVOKE or UNLOCATED; unknown values are ignored." }
-                occurred_at: { type: string, format: date-time }
+                reason: { type: string, description: "Sent by the producer; this consumer does not read it." }
+                occurred_at: { type: string, format: date-time, description: "Sent by the producer; this consumer does not read it." }
 
     StockRelocatedEvent:
       allOf:
@@ -851,7 +859,7 @@ components:
           properties:
             data:
               type: object
-              required: [relocation_id, site_code, sku, from_bin, to_bin, quantity, reason, source_ref, occurred_at]
+              required: [relocation_id, site_code, sku, from_bin, to_bin, quantity, reason, source_ref]
               properties:
                 relocation_id: { type: string }
                 site_code: { type: string }
@@ -861,7 +869,7 @@ components:
                 quantity: { type: integer, minimum: 1 }
                 reason: { type: string, description: "Act only on REPLENISHMENT; SLOTTING, CONSOLIDATION, MANUAL and any other value are ignored." }
                 source_ref: { type: string, maxLength: 200, description: "The request id on a replenishment; \"\" or another reference otherwise." }
-                occurred_at: { type: string, format: date-time }
+                occurred_at: { type: string, format: date-time, description: "Sent by the producer; this consumer does not read it." }
 
     SlotAssignment:
       type: object
@@ -886,18 +894,19 @@ components:
           properties:
             data:
               type: object
-              required: [plan_id, site_id, approved_at, assignments, moves]
+              required: [plan_id, site_id, approved_at, assignments]
               properties:
                 plan_id: { type: string }
                 site_id: { type: string }
                 approved_at: { type: string, format: date-time }
-                supersedes_plan_id: { type: string, description: Omitted when the site had no Approved plan. }
+                supersedes_plan_id: { type: string, description: "Sent by the producer; this consumer does not read it." }
                 assignments:
                   type: array
                   description: The FULL assignment map of the plan.
                   items: { $ref: "#/components/schemas/SlotAssignment" }
                 moves:
                   type: array
+                  description: "Sent by the producer; this consumer does not read it."
                   items: { $ref: "#/components/schemas/SlotMove" }
 
     ZoneRegisteredEvent:
@@ -907,7 +916,7 @@ components:
           properties:
             data:
               type: object
-              required: [zoneId, siteCode, areaCode, zoneCode, temperatureClass, hazmat]
+              required: [zoneId, siteCode, zoneCode]
               properties:
                 zoneId: { type: string }
                 siteCode: { type: string }
@@ -923,7 +932,7 @@ components:
           properties:
             data:
               type: object
-              required: [locationCode, aisleId, zoneId, locationType, maxWeightKg, maxVolumeM3]
+              required: [locationCode, zoneId]
               properties:
                 locationCode: { type: string }
                 aisleId: { type: string }
