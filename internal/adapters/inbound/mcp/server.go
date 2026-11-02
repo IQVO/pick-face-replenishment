@@ -37,14 +37,16 @@ const instructions = "Forward pick face replenishment of the warehouse (read-onl
 	"seconds. Nothing here changes data: declaring a policy, requesting or cancelling a replenishment are REST " +
 	"operations of pick-face-replenishment."
 
-// NewServer builds the MCP server for this bounded context with every tool
-// registered.
+// NewServer builds the MCP server for this bounded context with every tool,
+// resource, and workflow prompt registered.
 func NewServer(deps Deps) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: serverName, Version: serverVersion},
 		&mcp.ServerOptions{Instructions: instructions},
 	)
 	deps.registerTools(server)
+	deps.registerResources(server)
+	deps.registerPrompts(server)
 	return server
 }
 
