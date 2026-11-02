@@ -53,12 +53,14 @@ The service serves no `/metrics` endpoint (see [Observability](/docs/operations/
 - **Paging.** `limit` (1 to 500, default 100) and the opaque `cursor` (the previous page's `nextCursor`, base64url of
   the last key). A response without `nextCursor` is the last page. `GET /pick-faces` takes the required `siteId` and
   an optional `status` (`BELOW_MIN`, `OK`, `NO_SOURCE`, `NO_POLICY`); `GET /replenishments` takes `siteId`, `sku` and
-  `state` (`Requested`, `Completed`, `Cancelled`); `GET /policies` takes `siteId` and `sku`.
+  `state` (`Requested`, `Completed`, `Cancelled`); `GET /policies` takes `siteId` and `sku`. `limit` and `cursor` are
+  single-valued: an empty or repeated `limit` is `400 invalid-limit`, a repeated `cursor` is `400 invalid-cursor`, and
+  any query parameter a paged list does not declare is `400 unknown-query-parameter` (naming the first one).
 - **Errors** are RFC 7807 `application/problem+json` with
   `type = https://errors.pick-face-replenishment.warehouse-systems.dev/<slug>` from one table (`problemCatalogue` in
   `internal/adapters/inbound/http/errors.go`). The slugs are `malformed-request`, `invalid-if-match`,
   `invalid-site-id`, `invalid-sku`, `invalid-policy`, `invalid-quantity`, `invalid-request-id`, `invalid-state`,
-  `invalid-status`, `invalid-limit`, `invalid-cursor`, `policy-not-found`, `replenishment-not-found`,
+  `invalid-status`, `invalid-limit`, `invalid-cursor`, `unknown-query-parameter`, `policy-not-found`, `replenishment-not-found`,
   `policy-already-exists`, `replenishment-already-open`, `replenishment-not-open`, `concurrent-modification`,
   `no-forward-assignment`, `no-policy`, `no-source-stock`, `nothing-to-replenish`, `quantity-exceeds-max`,
   `idempotency-key-required`, `idempotency-key-reused` and `internal-error`. Causes and fixes are on
