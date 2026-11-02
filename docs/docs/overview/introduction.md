@@ -79,3 +79,7 @@ The per-edge table is on [Integration](/docs/ecosystem/integration).
 | read the behaviour use case by use case | [Use cases](/docs/ddd/use-cases) |
 | read the REST and event contracts | [API reference](/docs/api-reference), [Event catalogue](/docs/api-reference/events) |
 | see why it was built this way | [ADR index](/docs/adr), [DDD artifacts](/docs/ddd/ddd-artifacts) |
+
+:::note[Disclaimer]
+This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.
+:::
