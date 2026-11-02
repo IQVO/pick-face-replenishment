@@ -16,14 +16,14 @@ func requestIDParam(r *http.Request) (string, error) {
 
 // handleListPickFaces backs GET /pick-faces.
 func (s *Server) handleListPickFaces(w http.ResponseWriter, r *http.Request) {
-	limit, err := intParam(r, "limit", usecases.ErrInvalidLimit)
+	limit, cursor, err := pagingParams(r, "siteId", "status")
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 	q := r.URL.Query()
 	page, err := s.ListPickFaces.Handle(r.Context(), usecases.PickFaceQuery{
-		SiteID: q.Get("siteId"), Status: q.Get("status"), Limit: limit, Cursor: q.Get("cursor"),
+		SiteID: q.Get("siteId"), Status: q.Get("status"), Limit: limit, Cursor: cursor,
 	})
 	if err != nil {
 		writeError(w, r, err)
@@ -70,14 +70,14 @@ func replenishmentInput(r *http.Request) (usecases.RequestReplenishmentInput, er
 
 // handleListReplenishments backs GET /replenishments.
 func (s *Server) handleListReplenishments(w http.ResponseWriter, r *http.Request) {
-	limit, err := intParam(r, "limit", usecases.ErrInvalidLimit)
+	limit, cursor, err := pagingParams(r, "siteId", "sku", "state")
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 	q := r.URL.Query()
 	page, err := s.ListRequests.Handle(r.Context(), usecases.ListRequestsQuery{
-		Limit: limit, Cursor: q.Get("cursor"), SiteID: q.Get("siteId"), SKU: q.Get("sku"), State: q.Get("state"),
+		Limit: limit, Cursor: cursor, SiteID: q.Get("siteId"), SKU: q.Get("sku"), State: q.Get("state"),
 	})
 	if err != nil {
 		writeError(w, r, err)
