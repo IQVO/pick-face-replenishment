@@ -24,8 +24,10 @@ var (
 	errIfMatchRequired = errors.New("if-match is required")
 	// errInvalidSiteID and errInvalidSKU mark an id outside the OpenAPI
 	// 1..64 character bound (blank ids are the domain's own errors).
-	errInvalidSiteID = errors.New("site id must be 1 to 64 characters")
-	errInvalidSKU    = errors.New("sku must be 1 to 64 characters")
+	// errUnknownQueryParameter marks a query parameter a paged list does not declare.
+	errUnknownQueryParameter = errors.New("unknown query parameter")
+	errInvalidSiteID         = errors.New("site id must be 1 to 64 characters")
+	errInvalidSKU            = errors.New("sku must be 1 to 64 characters")
 )
 
 // problem is the fixed (status, slug, title) of one error category. detail,
@@ -79,6 +81,7 @@ var problemCatalogue = []struct {
 	{usecases.ErrInvalidRequestID, problem{status: http.StatusBadRequest, slug: "invalid-request-id", title: "Request id is invalid"}},
 	{usecases.ErrInvalidState, problem{status: http.StatusBadRequest, slug: "invalid-state", title: "State is invalid"}},
 	{usecases.ErrInvalidStatus, problem{status: http.StatusBadRequest, slug: "invalid-status", title: "Status is invalid"}},
+	{errUnknownQueryParameter, problem{status: http.StatusBadRequest, slug: "unknown-query-parameter", title: "Unknown query parameter"}},
 	{usecases.ErrInvalidLimit, problem{status: http.StatusBadRequest, slug: "invalid-limit", title: "Limit is invalid"}},
 	{usecases.ErrInvalidCursor, problem{status: http.StatusBadRequest, slug: "invalid-cursor", title: "Cursor is invalid"}},
 

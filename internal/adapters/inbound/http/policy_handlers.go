@@ -9,14 +9,14 @@ import (
 
 // handleListPolicies backs GET /policies.
 func (s *Server) handleListPolicies(w http.ResponseWriter, r *http.Request) {
-	limit, err := intParam(r, "limit", usecases.ErrInvalidLimit)
+	limit, cursor, err := pagingParams(r, "siteId", "sku")
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 	q := r.URL.Query()
 	page, err := s.ListPolicies.Handle(r.Context(), usecases.ListPoliciesQuery{
-		Limit: limit, Cursor: q.Get("cursor"), SiteID: q.Get("siteId"), SKU: q.Get("sku"),
+		Limit: limit, Cursor: cursor, SiteID: q.Get("siteId"), SKU: q.Get("sku"),
 	})
 	if err != nil {
 		writeError(w, r, err)
