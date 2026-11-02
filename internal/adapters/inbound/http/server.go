@@ -59,8 +59,8 @@ func NewRouter(s *Server) http.Handler {
 			r.Use(s.Idempotency)
 		}
 		r.Post("/replenishments", s.handleRequestReplenishment)
-		r.Post("/replenishments/{requestId}/cancel", s.handleCancelReplenishment)
-		r.Post("/sites/{siteId}/evaluate", s.handleEvaluateSite)
+		r.Post("/replenishments/{requestId}/cancellations", s.handleCancelReplenishment)
+		r.Post("/sites/{siteId}/evaluations", s.handleEvaluateSite)
 	})
 	return r
 }

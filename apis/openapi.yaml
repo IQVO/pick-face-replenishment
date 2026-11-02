@@ -286,8 +286,8 @@ paths:
         `no-policy`), at most the source bin's usable stock (422 `no-source-stock`).
         At most one request is open per forward bin and SKU (409
         `replenishment-already-open`). Publishes `ReplenishmentRequested`. Requires
-        an `Idempotency-Key`; replaying the same key and body returns the original
-        request.
+        an `Idempotency-Key`; replaying the same key and request returns the
+        original answer with `Idempotency-Replayed: true`.
       tags: [Replenishments]
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -309,6 +309,8 @@ paths:
               description: Path of the new request.
               schema:
                 type: string
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
           content:
             application/json:
               schema:
@@ -411,7 +413,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /replenishments/{requestId}/cancel:
+  /replenishments/{requestId}/cancellations:
     parameters:
       - $ref: "#/components/parameters/RequestId"
     post:
@@ -430,6 +432,9 @@ paths:
       responses:
         "200":
           description: The request is now Cancelled.
+          headers:
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
           content:
             application/json:
               schema:
@@ -445,7 +450,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /sites/{siteId}/evaluate:
+  /sites/{siteId}/evaluations:
     parameters:
       - $ref: "#/components/parameters/SiteId"
     post:
@@ -456,13 +461,17 @@ paths:
         the requests it finds. It is a sweep that converges: a pick face that
         already has an open request is reported as `alreadyOpen` and left alone,
         so running it twice raises nothing the second time. Requires an
-        `Idempotency-Key`; replaying the same key returns the original summary.
+        `Idempotency-Key`; replaying the same key returns the original summary
+        with `Idempotency-Replayed: true`.
       tags: [Sites]
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "200":
           description: The sweep finished.
+          headers:
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
           content:
             application/json:
               schema:
@@ -480,6 +489,8 @@ paths:
                   - repl-3b0e8d2a-7c41-4f6a-9d15-2a8b6c4e1f07
         "400":
           $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
@@ -724,8 +735,9 @@ components:
         retried request safe. The service always runs on Postgres, so it is
         required on every deployment and answered with 400
         `idempotency-key-required` when absent; a replay with the same key and
-        the same body returns the original response, while the same key with a
-        different body is 422 `idempotency-key-reused`.
+        the same request (method, path and body) returns the original response
+        with the header `Idempotency-Replayed: true`, while the same key with a
+        different request is 409 `idempotency-key-reused`.
       schema:
         type: string
         minLength: 1
@@ -749,6 +761,16 @@ components:
         type: string
         format: date-time
       example: "2026-10-07T00:00:00Z"
+
+  headers:
+    IdempotencyReplayed:
+      description: >-
+        `true` when this response is the stored answer of an earlier request
+        with the same `Idempotency-Key` and the same method, path and body (the
+        handler did not run again). Absent on the first execution.
+      schema:
+        type: string
+        enum: ["true"]
 
   responses:
     BadRequest:
@@ -878,7 +900,7 @@ components:
                 detail: replenishment request not found
                 instance: /replenishments/repl-unknown
     Conflict:
-      description: The resource is in the wrong state for the command, or another request changed it first.
+      description: The resource is in the wrong state for the command, another request changed it first, or the Idempotency-Key was already used with a different request (`idempotency-key-reused`).
       content:
         application/problem+json:
           schema:
@@ -907,7 +929,7 @@ components:
                 title: Only a Requested replenishment can be cancelled
                 status: 409
                 detail: replenishment request is not Requested
-                instance: /replenishments/repl-1/cancel
+                instance: /replenishments/repl-1/cancellations
             concurrentModification:
               summary: Stale If-Match or concurrent write
               value:
@@ -916,8 +938,16 @@ components:
                 status: 409
                 detail: concurrent modification
                 instance: /policies/SITE-1/SKU-1
+            idempotencyKeyReused:
+              summary: The Idempotency-Key was used with a different request
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/idempotency-key-reused
+                title: Idempotency-Key was already used with a different request
+                status: 409
+                detail: the Idempotency-Key was used with a different request (method, path or body)
+                instance: /replenishments
     UnprocessableEntity:
-      description: The request is well-formed but the current state does not allow it, or the Idempotency-Key was reused.
+      description: The request is well-formed but the current state does not allow it.
       content:
         application/problem+json:
           schema:
@@ -931,14 +961,6 @@ components:
                 status: 422
                 detail: product-master has declared no CASE level in force for this SKU; declare one there, or declare the policy with source DECLARED
                 instance: /policies/SITE-1/SKU-1
-            idempotencyKeyReused:
-              summary: The Idempotency-Key was used with a different body
-              value:
-                type: https://errors.pick-face-replenishment.warehouse-systems.dev/idempotency-key-reused
-                title: Idempotency-Key was already used with a different request
-                status: 422
-                detail: the Idempotency-Key was used with a different request body
-                instance: /replenishments
             noForwardAssignment:
               summary: The SKU has no forward bin
               value:

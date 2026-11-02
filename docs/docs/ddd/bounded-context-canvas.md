@@ -72,8 +72,8 @@ empty forward pick face, fewer short picks). Evolution: custom-built (genesis).
 | `PUT /policies/{siteId}/{sku}` | command | planner, console | REST | declare or change a policy (`If-Match`) |
 | `DELETE /policies/{siteId}/{sku}` | command | planner | REST | remove a policy, cancel its open requests |
 | `POST /replenishments` | command | planner, agent | REST | raise a request by hand (`Idempotency-Key`) |
-| `POST /replenishments/{requestId}/cancel` | command | planner | REST | cancel an open request (`Idempotency-Key`) |
-| `POST /sites/{siteId}/evaluate` | command | planner, agent | REST | sweep a site (`Idempotency-Key`) |
+| `POST /replenishments/{requestId}/cancellations` | command | planner | REST | cancel an open request (`Idempotency-Key`) |
+| `POST /sites/{siteId}/evaluations` | command | planner, agent | REST | sweep a site (`Idempotency-Key`) |
 | `GET /policies`, `/policies/{siteId}/{sku}`, `/pick-faces`, `/replenishments`, `/replenishments/{requestId}` | query | planner, console, agent | REST | read |
 | `com.warehouse.wms.inventory-storage.stock.BinStockLevelChanged` | event | inventory-storage | Kafka `warehouse.inventory.events` | absolute bin level, versioned (inventory-storage ADR 0040) |
 | `com.warehouse.wms.inventory-storage.stock.StockRelocated` | event | inventory-storage | Kafka `warehouse.inventory.events` | completes a request when reason is `REPLENISHMENT` (produced for a completed `REPLENISH` task, inventory-storage ADR 0041) |

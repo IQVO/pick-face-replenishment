@@ -101,7 +101,7 @@ func (s *Server) handleGetReplenishment(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, toReplenishment(req))
 }
 
-// handleCancelReplenishment backs POST /replenishments/{requestId}/cancel.
+// handleCancelReplenishment backs POST /replenishments/{requestId}/cancellations.
 func (s *Server) handleCancelReplenishment(w http.ResponseWriter, r *http.Request) {
 	id, err := requestIDParam(r)
 	if err != nil {
@@ -116,7 +116,7 @@ func (s *Server) handleCancelReplenishment(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, toReplenishment(req))
 }
 
-// handleEvaluateSite backs POST /sites/{siteId}/evaluate.
+// handleEvaluateSite backs POST /sites/{siteId}/evaluations.
 func (s *Server) handleEvaluateSite(w http.ResponseWriter, r *http.Request) {
 	site, err := siteParam(r)
 	if err != nil {

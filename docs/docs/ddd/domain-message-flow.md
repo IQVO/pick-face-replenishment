@@ -47,7 +47,7 @@ sequenceDiagram
     PFR->>PFR: outbox row ReplenishmentPolicyDeclared on the analytics topic
     P->>PFR: GET /pick-faces?siteId=SITE-1 (query)
     PFR-->>P: faces with status BELOW_MIN, OK, NO_SOURCE or NO_POLICY
-    P->>PFR: POST /sites/SITE-1/evaluate with Idempotency-Key (command EvaluateSite)
+    P->>PFR: POST /sites/SITE-1/evaluations with Idempotency-Key (command EvaluateSite)
     PFR->>PFR: detect per face, plan a request for each Raise
     PFR-->>P: 200 summary with requestIds
     PFR->>K: ReplenishmentRequested (event, via the outbox relay)
@@ -113,7 +113,7 @@ sequenceDiagram
     autonumber
     actor P as Planner
     participant PFR as pick-face-replenishment
-    P->>PFR: POST /replenishments/repl-1/cancel with Idempotency-Key (command CancelRequest)
+    P->>PFR: POST /replenishments/repl-1/cancellations with Idempotency-Key (command CancelRequest)
     PFR->>PFR: Requested to Cancelled (OPERATOR) and outbox row
     PFR-->>P: 200 Cancelled request
     P->>PFR: DELETE /policies/SITE-1/SKU-1 with If-Match (command RemovePolicy)

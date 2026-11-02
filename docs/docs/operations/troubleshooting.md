@@ -73,12 +73,12 @@ Symptom, cause, check and fix, built from the failure modes visible in the code.
 | 409 | `concurrent-modification` | a stale `If-Match`, `If-Match` on a policy that does not exist, or a racing write | re-read, retry |
 | 409 | `replenishment-already-open` | a request is already open for that forward bin and SKU (also lost races of two sweeps: the partial unique index decides) | read it with `GET /replenishments?state=Requested`, or cancel it |
 | 409 | `replenishment-not-open` | cancelling a request that is already `Completed` or `Cancelled` | none, it is final |
+| 409 | `idempotency-key-reused` | the same key with a different method, path or body (a client bug: do not retry blindly; distinguishable from the business 409s by this type) | use a new key |
 | 422 | `no-forward-assignment` | the site's approved map assigns no forward bin to the SKU | wait for or fix the slot plan |
 | 422 | `no-policy` | the SKU has a forward bin but no policy declared at the site (with or without a `quantity`) | declare a policy first |
 | 422 | `no-source-stock` | no reserve bin has usable stock for the request (or the quantity exceeds the source's usable stock) | check `bin_stock_levels`, send a smaller quantity |
 | 422 | `nothing-to-replenish` | no `quantity` sent and the face is above its minimum | send a `quantity`, or leave it |
 | 422 | `quantity-exceeds-max` | projected level plus `quantity` would pass `maxQty` | send a smaller quantity |
-| 422 | `idempotency-key-reused` | the same key with a different method, path or body | use a new key |
 | 500 | `internal-error` | an unmapped error, a recovered panic, or a database statement over the 5 s timeout | the ERROR line `request failed` or `handler panicked` has the cause; the response never contains it |
 
 There is no 412 or 428 in this API (a missing or stale `If-Match` is 400 or 409), and no circuit breaker: the service
@@ -89,6 +89,8 @@ makes no outbound HTTP or MCP call, so the only dependencies that can fail are P
 - A 4xx answer is stored and replayed for the same key and body, so retrying a rejected request with the same key
   returns the same rejection even if you have since fixed the cause (for example after the missing policy was declared).
   Use a new key after fixing the cause.
+- Every replay (a 2xx or a 4xx answered from the store, or the winner's answer given to the loser of a race) carries the
+  response header `Idempotency-Replayed: true`; the first execution never does.
 - A 5xx is never stored: the same key may retry the real work.
 - Under Postgres two concurrent requests with one new key both run, but the first to store wins and the other rolls back
   and replays the winner's answer.

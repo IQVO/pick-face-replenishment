@@ -18,9 +18,13 @@ import (
 	"github.com/claudioed/pick-face-replenishment/internal/application/repository"
 )
 
-// IdempotencyKeyHeader is the request header a caller supplies on a POST
-// wrapped by Idempotency.Middleware.
+// IdempotencyKeyHeader is the request header a caller supplies on a POST or
+// PATCH wrapped by Idempotency.Middleware.
 const IdempotencyKeyHeader = "Idempotency-Key"
+
+// IdempotencyReplayedHeader is the response header ("true") of every replayed
+// answer, and only of a replay: the first execution never carries it.
+const IdempotencyReplayedHeader = "Idempotency-Replayed"
 
 // maxIdempotencyKeyLen is the OpenAPI maxLength of the key.
 const maxIdempotencyKeyLen = 128
@@ -36,7 +40,8 @@ var (
 // adapter. The argument in short:
 //
 //   - A key that already has a stored answer replays it (same fingerprint:
-//     method, path and body) or is 422 idempotency-key-reused (different
+//     method, path and SHA-256 of the body) with the response header
+//     Idempotency-Replayed: true, or is 409 idempotency-key-reused (different
 //     fingerprint). Nothing runs.
 //   - A new key runs the handler INSIDE one unit of work. A 2xx answer is saved
 //     in that same transaction, so the effects, their outbox rows and the
@@ -268,10 +273,11 @@ func (m *Idempotency) finishRejected(w http.ResponseWriter, r *http.Request, key
 }
 
 // replay answers a request whose key already has a stored answer: that answer
-// when the fingerprint matches, 422 when it does not.
+// (marked Idempotency-Replayed: true) when the fingerprint matches, 409 when
+// it does not.
 func replay(w http.ResponseWriter, r *http.Request, rec repository.IdempotencyRecord, fp string) {
 	if rec.Fingerprint != fp {
-		writeProblem(w, r, idempotencyKeyReused, "the Idempotency-Key was used with a different request body")
+		writeProblem(w, r, idempotencyKeyReused, "the Idempotency-Key was used with a different request (method, path or body)")
 		return
 	}
 	var answer storedAnswer
@@ -284,6 +290,7 @@ func replay(w http.ResponseWriter, r *http.Request, rec repository.IdempotencyRe
 			w.Header().Add(k, v)
 		}
 	}
+	w.Header().Set(IdempotencyReplayedHeader, "true")
 	w.WriteHeader(rec.Status)
 	_, _ = w.Write(answer.Body)
 }

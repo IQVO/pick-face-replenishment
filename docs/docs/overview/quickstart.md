@@ -111,13 +111,14 @@ curl -s 'localhost:18080/pick-faces?siteId=SITE-1'
 Run the sweep. On Postgres the POSTs need an `Idempotency-Key`:
 
 ```bash
-curl -s -X POST localhost:18080/sites/SITE-1/evaluate
+curl -s -X POST localhost:18080/sites/SITE-1/evaluations
 # 400 .../idempotency-key-required  "send an Idempotency-Key header with a unique value per logical request"
 
-curl -s -X POST localhost:18080/sites/SITE-1/evaluate -H 'Idempotency-Key: eval-1'
+curl -s -X POST localhost:18080/sites/SITE-1/evaluations -H 'Idempotency-Key: eval-1'
 # {"siteId":"SITE-1","evaluatedAt":"2026-10-17T09:16:37.73254Z","evaluated":1,"raised":1,"healthy":0,"alreadyOpen":0,"noPolicy":0,"noSource":0,"requestIds":["repl-c4d022ba-da77-4729-bd02-ea880ad8ceaa"]}
-# the same key again: the identical body is replayed, nothing new is raised
-curl -s -X POST localhost:18080/sites/SITE-1/evaluate -H 'Idempotency-Key: eval-2'
+# a new key runs the sweep again: it converges, nothing new is raised
+# (the same key again would replay the first body with the response header Idempotency-Replayed: true)
+curl -s -X POST localhost:18080/sites/SITE-1/evaluations -H 'Idempotency-Key: eval-2'
 # {"siteId":"SITE-1",...,"evaluated":1,"raised":0,"healthy":0,"alreadyOpen":1,"noPolicy":0,"noSource":0,"requestIds":[]}
 ```
 
@@ -131,7 +132,7 @@ curl -s localhost:18080/replenishments/repl-c4d022ba-da77-4729-bd02-ea880ad8ceaa
 curl -s -X POST localhost:18080/replenishments -H 'Idempotency-Key: manual-1' -H 'Content-Type: application/json' -d '{"siteId":"SITE-1","sku":"SKU-1","quantity":6}'
 # 409 .../replenishment-already-open  "... request repl-c4d022ba-... is open for this forward bin and sku"
 
-curl -s -X POST localhost:18080/replenishments/repl-c4d022ba-da77-4729-bd02-ea880ad8ceaa/cancel -H 'Idempotency-Key: cancel-1'
+curl -s -X POST localhost:18080/replenishments/repl-c4d022ba-da77-4729-bd02-ea880ad8ceaa/cancellations -H 'Idempotency-Key: cancel-1'
 # 200 ..."state":"Cancelled","cancelledAt":"2026-10-17T09:16:37.805476Z","cancelReason":"OPERATOR","version":2
 ```
 
