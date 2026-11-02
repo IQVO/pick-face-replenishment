@@ -8,9 +8,9 @@ import (
 	"github.com/claudioed/pick-face-replenishment/internal/application/outbox"
 )
 
-func TestSendFailureNamesTheRowAndUnwrapsTheCause(t *testing.T) {
+func TestSendFailureErrorNamesTheRowAndUnwrapsTheCause(t *testing.T) {
 	cause := errors.New("broker down")
-	f := &outbox.SendFailure{
+	f := &outbox.SendFailureError{
 		RowID:    42,
 		Message:  outbox.Message{EventType: "com.warehouse.wms.pick-face-replenishment.replenishment.ReplenishmentRequested"},
 		Attempts: 3,
@@ -23,9 +23,9 @@ func TestSendFailureNamesTheRowAndUnwrapsTheCause(t *testing.T) {
 		}
 	}
 	if !errors.Is(f, cause) {
-		t.Fatal("a SendFailure must unwrap to its cause")
+		t.Fatal("a SendFailureError must unwrap to its cause")
 	}
-	var as *outbox.SendFailure
+	var as *outbox.SendFailureError
 	if !errors.As(error(f), &as) || as.Attempts != 3 {
 		t.Fatalf("errors.As = %+v", as)
 	}

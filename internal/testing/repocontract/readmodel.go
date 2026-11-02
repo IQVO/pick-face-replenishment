@@ -50,39 +50,39 @@ func binLevel(t *testing.T, m ports.PickFaceReadModel, site, bin, sku string) re
 }
 
 func levelUnseen(t *testing.T, m ports.PickFaceReadModel) {
-	if got := binLevel(t, m, "S1", "F-01", "SKU-1"); got != level("S1", "F-01", "SKU-1", 0, 0, 0) {
+	if got := binLevel(t, m, "S1", "F-01", sku1); got != level("S1", "F-01", sku1, 0, 0, 0) {
 		t.Fatalf("unseen bin = %+v", got)
 	}
 }
 
 func levelVersionGuard(t *testing.T, m ports.PickFaceReadModel) {
-	if !apply(t, m, level("S1", "F-01", "SKU-1", 8, 1, 3)) {
+	if !apply(t, m, level("S1", "F-01", sku1, 8, 1, 3)) {
 		t.Fatal("the first level must apply")
 	}
 	for _, v := range []int64{3, 2, 1} {
-		if apply(t, m, level("S1", "F-01", "SKU-1", 99, 99, v)) {
+		if apply(t, m, level("S1", "F-01", sku1, 99, 99, v)) {
 			t.Fatalf("version %d must not replace version 3", v)
 		}
 	}
-	if got := binLevel(t, m, "S1", "F-01", "SKU-1"); got != level("S1", "F-01", "SKU-1", 8, 1, 3) {
+	if got := binLevel(t, m, "S1", "F-01", sku1); got != level("S1", "F-01", sku1, 8, 1, 3) {
 		t.Fatalf("level = %+v", got)
 	}
-	if !apply(t, m, level("S1", "F-01", "SKU-1", 5, 0, 4)) {
+	if !apply(t, m, level("S1", "F-01", sku1, 5, 0, 4)) {
 		t.Fatal("a greater version must apply")
 	}
-	if got := binLevel(t, m, "S1", "F-01", "SKU-1"); got != level("S1", "F-01", "SKU-1", 5, 0, 4) {
+	if got := binLevel(t, m, "S1", "F-01", sku1); got != level("S1", "F-01", sku1, 5, 0, 4) {
 		t.Fatalf("level = %+v", got)
 	}
 }
 
 func levelScope(t *testing.T, m ports.PickFaceReadModel) {
-	apply(t, m, level("S1", "F-01", "SKU-1", 1, 0, 1))
+	apply(t, m, level("S1", "F-01", sku1, 1, 0, 1))
 	apply(t, m, level("S1", "F-01", "SKU-2", 2, 0, 1))
-	apply(t, m, level("S1", "F-02", "SKU-1", 3, 0, 1))
-	apply(t, m, level("S2", "F-01", "SKU-1", 4, 0, 1))
+	apply(t, m, level("S1", "F-02", sku1, 3, 0, 1))
+	apply(t, m, level("S2", "F-01", sku1, 4, 0, 1))
 	for _, want := range []repository.BinLevel{
-		level("S1", "F-01", "SKU-1", 1, 0, 1), level("S1", "F-01", "SKU-2", 2, 0, 1),
-		level("S1", "F-02", "SKU-1", 3, 0, 1), level("S2", "F-01", "SKU-1", 4, 0, 1),
+		level("S1", "F-01", sku1, 1, 0, 1), level("S1", "F-01", "SKU-2", 2, 0, 1),
+		level("S1", "F-02", sku1, 3, 0, 1), level("S2", "F-01", sku1, 4, 0, 1),
 	} {
 		if got := binLevel(t, m, want.SiteCode, want.Bin, want.SKU); got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
