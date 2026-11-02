@@ -162,6 +162,13 @@ func (c *capture) Write(b []byte) (int, error) {
 	return c.body.Write(b)
 }
 
+// serveFresh needs no SAVEPOINT (unlike the join-the-transaction shape of the
+// sibling contexts): a 4xx rolls the WHOLE unit of work back (errRollback) and is
+// stored on its own afterwards, so a handler that mapped a failed statement
+// (23505 -> 409) over an ABORTED transaction never reaches a failing outcome
+// UPDATE; and a 2xx over an aborted transaction fails in saveAndReread (25P02),
+// rolls back and answers 500, so it is neither returned nor cached. Pinned by
+// cmd/api/idempotency_aborted_integration_test.go.
 func (m *Idempotency) serveFresh(w http.ResponseWriter, r *http.Request, next http.Handler, key, fp string) {
 	var (
 		out    *capture
