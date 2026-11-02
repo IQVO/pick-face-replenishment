@@ -24,8 +24,8 @@ below are the intended ones (see `.claude/rules/domain-model.md`).
 | `POST /replenishments` | `requestReplenishment` | `RequestReplenishment` (needs `Idempotency-Key`; 201 + `Location`) |
 | `GET /replenishments` | `listReplenishments` | `ListReplenishments` (newest first; filters `siteId`, `sku`, `state`) |
 | `GET /replenishments/{requestId}` | `getReplenishment` | `GetReplenishment` |
-| `POST /replenishments/{requestId}/cancel` | `cancelReplenishment` | `CancelReplenishment` (needs `Idempotency-Key`; reason `OPERATOR`) |
-| `POST /sites/{siteId}/evaluate` | `evaluateSite` | `EvaluateSite` (needs `Idempotency-Key`; sweep that converges) |
+| `POST /replenishments/{requestId}/cancellations` | `cancelReplenishment` | `CancelReplenishment` (needs `Idempotency-Key`; reason `OPERATOR`) |
+| `POST /sites/{siteId}/evaluations` | `evaluateSite` | `EvaluateSite` (needs `Idempotency-Key`; sweep that converges) |
 | `GET /healthz`, `GET /readyz` | `healthz`, `readyz` | probes, no use case (`readyz` is 503 while starting or draining) |
 
 ## Conventions
@@ -39,10 +39,10 @@ below are the intended ones (see `.claude/rules/domain-model.md`).
   `limit` 1 to 500 (default 100), opaque `cursor` = the previous `nextCursor`,
   no `nextCursor` on the last page (400 `invalid-limit` / `invalid-cursor`).
 - `Idempotency-Key`: required on `POST /replenishments`,
-  `POST /replenishments/{requestId}/cancel` and `POST /sites/{siteId}/evaluate`
+  `POST /replenishments/{requestId}/cancellations` and `POST /sites/{siteId}/evaluations`
   whenever the service runs (it always runs on Postgres, ADR 0006); absent is 400
   `idempotency-key-required`. Same key and same body replays the original
-  response; same key with a different body is 422 `idempotency-key-reused`.
+  response; same key with a different body is 409 `idempotency-key-reused`.
 - `If-Match` carries the policy version (the `ETag` of a previous response,
   quoted or not): omitted creates, present replaces or removes. A stale value
   is 409 `concurrent-modification`; a non-integer is 400 `invalid-if-match`.
