@@ -11,6 +11,34 @@ import (
 	"github.com/claudioed/pick-face-replenishment/internal/domain/replenishment"
 )
 
+// Authority levels (Agentic Standard v2, AS-1; docs/adr/0012). Every
+// registered tool declares exactly one of these in its Meta under
+// authorityMetaKey; the fleet rule is agent-authority
+// (.claude/rules/fleet/agent-authority.md). This surface is read-only
+// (docs/adr/0007), so every tool here is L1: a pure read of this context's
+// own state that changes nothing.
+const (
+	// authorityMetaKey is the tools/list _meta key carrying a tool's level.
+	authorityMetaKey = "com.warehouse/authority"
+	// authorityL1 reads facts and changes nothing.
+	authorityL1 = "L1"
+	// authorityL2 is a pure recommendation: computes a proposal, changes nothing.
+	// Kept for the fleet's pinned declaration shape (contracts P3-1); this
+	// surface is read-only, so no tool declares it yet.
+	authorityL2 = "L2" //nolint:unused // fleet-pinned shape; unused while every tool is L1
+	// authorityL3 mutates state; the caller is accountable. Kept for the
+	// fleet's pinned declaration shape; writes stay on REST, the outbox and
+	// the version/idempotency guards (docs/adr/0007), so no tool declares it.
+	authorityL3 = "L3" //nolint:unused // fleet-pinned shape; unused while every tool is L1
+)
+
+// authorityMeta is the Meta a tool registers to declare its authority level.
+// The level parameter is the fleet's pinned shape (contracts P3-1): a future
+// tool declares its level by naming the constant, never by editing this.
+//
+//nolint:unparam // every tool here is L1 (read-only surface, ADR 0007); the parameter stays
+func authorityMeta(level string) mcp.Meta { return mcp.Meta{authorityMetaKey: level} }
+
 // Deps is everything the MCP tools need, injected by the composition root.
 // It carries the SAME read use cases the REST adapter uses (GET /policies,
 // /policies/{siteId}/{sku}, /pick-faces, /replenishments,
@@ -235,6 +263,7 @@ func (d Deps) registerTools(server *mcp.Server) {
 			"next page; it is absent on the last page. Read-only; a bad limit fails with invalid-limit and a bad cursor " +
 			"with invalid-cursor.",
 		Annotations: readOnly,
+		Meta:        authorityMeta(authorityL1),
 	}, d.listPolicies)
 
 	addTool(server, &mcp.Tool{
@@ -242,6 +271,7 @@ func (d Deps) registerTools(server *mcp.Server) {
 		Description: "Read the replenishment policy of one site and SKU: min_qty, max_qty, multiple, version and declared_at. " +
 			"Read-only; fails with policy-not-found when no policy is declared and invalid-site-id or invalid-sku for a blank id.",
 		Annotations: readOnly,
+		Meta:        authorityMeta(authorityL1),
 	}, d.getPolicy)
 
 	addTool(server, &mcp.Tool{
@@ -253,6 +283,7 @@ func (d Deps) registerTools(server *mcp.Server) {
 			"Optionally only one status. Levels are the event-fed local copy. Read-only; fails with invalid-site-id for a " +
 			"blank site, invalid-status for an unknown status, invalid-limit and invalid-cursor.",
 		Annotations: readOnly,
+		Meta:        authorityMeta(authorityL1),
 	}, d.listPickFaces)
 
 	addTool(server, &mcp.Tool{
@@ -263,6 +294,7 @@ func (d Deps) registerTools(server *mcp.Server) {
 			"cancellation instant and reason when they happened, and version. Pass the returned next_cursor for the next " +
 			"page. Read-only; fails with invalid-state, invalid-limit or invalid-cursor.",
 		Annotations: readOnly,
+		Meta:        authorityMeta(authorityL1),
 	}, d.listReplenishments)
 
 	addTool(server, &mcp.Tool{
@@ -272,6 +304,7 @@ func (d Deps) registerTools(server *mcp.Server) {
 			"raised under, requested_at, completed_at or cancelled_at with cancel_reason, and version. Read-only; fails " +
 			"with replenishment-not-found for an unknown id and invalid-request-id for a malformed one.",
 		Annotations: readOnly,
+		Meta:        authorityMeta(authorityL1),
 	}, d.getReplenishment)
 }
 
