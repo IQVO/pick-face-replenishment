@@ -68,6 +68,18 @@ already-lived incident, not a hypothetical:
 - **TestMCPAdapterDependencyRule** (conditional, only if `cmd/mcp` exists)
   — ADR-0008: MCP servers are additive inbound adapters. Nothing may
   depend on the MCP package; it may depend only on application+domain.
+- **Agent authority** (`mcp_authority_fitness_test.go`: `TestEveryMCPToolDeclaresAuthority`,
+  `TestMCPWriteToolsAreAtLeastL3`, `TestA2ASkillsDeclareAuthority`,
+  `TestMCPServerOffersResourceAndPrompt`; sensors' own tests
+  `TestMCPAuthoritySensorBites`, `TestMCPWriteLevelSensorBites`,
+  `TestA2AAuthoritySensorBites`, `TestMCPSurfaceSensorBites`,
+  `TestAgentAdapterSkipRules`) — Agentic Standard v2, ADR 0012, fleet rule
+  `agent-authority` (warehouse-docs `agents/fleet/agent-authority.md`).
+  Static `go/ast` scan, no server and no database: every MCP tool declares
+  exactly one level L1..L4 in its Meta, a tool that is not provably
+  read-only is at least L3, every A2A skill carries one `authority:Ln` tag,
+  and the MCP server offers at least one resource and one prompt. See
+  "Agent authority declarations" below for the accepted shape.
 - **TestNoAuthMiddlewareReintroduced** — encodes the fleet-wide
   2026-09-11 static-bearer-auth revert. An agent "helpfully" re-adding
   auth middleware fails CI instead of shipping unreviewed.
@@ -154,6 +166,43 @@ the template has no projector. Each projector guards it with its own unit test
 of the stop path (process-path-management `TestAwaitStop_ConsumerLoopExitIsAnError`,
 workforce-management `TestSuperviseConsumer_*`); copy that shape when a new
 service adds a projector.
+
+## Agent authority declarations
+
+The sensors in `internal/architecture/mcp_authority_fitness_test.go` check, by
+static AST scan of `internal/adapters/inbound/mcp` and `.../a2a` (ADR 0012):
+
+- **Every MCP tool declares its level.** The pinned shape (the one
+  workforce-management ships) is `Meta: authorityMeta(authorityL3)` with
+  `const authorityMetaKey = "com.warehouse/authority"`, the constants
+  `authorityL1`..`authorityL3` and
+  `func authorityMeta(level string) mcp.Meta { return mcp.Meta{authorityMetaKey: level} }`
+  in the adapter package. A string literal argument, and an inline
+  `mcp.Meta{"com.warehouse/authority": "L3"}` literal, are accepted as the same
+  thing; a level computed at run time is rejected because the sensor cannot
+  read it. The tool's `mcp.ToolAnnotations` must be inline (or its
+  `ReadOnlyHint` a literal/variable the sensor can resolve): a shared
+  annotations variable hides the hint and fails the write-level test.
+- **Write tools are at least L3.** A tool whose `Annotations` do not set
+  `ReadOnlyHint: true` (a literal, or a local variable assigned the literal
+  `true`) must not be L1/L2.
+- **L4 needs an ADR.** Put a comment in the same file:
+  `//authority:L4 ADR-0042 <one-line envelope>`. Without an ADR reference the
+  test fails.
+- **A2A skills** carry the tag `authority:L1`..`authority:L4`; a skill tagged
+  `write` is L3/L4 (L4 with the same comment).
+- **Resources and prompts.** The MCP adapter calls `AddResource` or
+  `AddResourceTemplate` at least once and `AddPrompt` at least once.
+
+This surface is complete (one policy resource, one SOP prompt), so the
+`.agent-surface-pending` marker is not used; if a rollout ever needs to park
+the resource/prompt test, the marker is `internal/adapters/inbound/mcp/.agent-surface-pending`
+holding ONE line of reason — the test then skips and prints it. It never parks
+the authority tests.
+
+These tests ship as an UNMANAGED copy (not in `tools/migrate_v3.py` `MANAGED`):
+the repo adopts them in a rollout wave together with the declarations, otherwise
+its next sync would turn it red.
 
 ## Mutation testing: what it catches that coverage doesn't
 

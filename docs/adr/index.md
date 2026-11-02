@@ -25,3 +25,4 @@ section.
 | [0009](/docs/adr/0009-pack-derived-replenishment-multiple) | Pack-derived replenishment multiple | Proposed (2026-10-24) |
 | [0010](/docs/adr/0010-a2a-inbound-adapter) | A2A inbound adapter (read-only, unauthenticated, additive) | Accepted (2026-10-29) |
 | [0011](/docs/adr/0011-adopt-the-fleet-rest-api-guideline) | Adopt the fleet REST API guideline (noun routes, idempotent POST/PATCH with `Idempotency-Replayed`, 409 on key reuse, keyset paging) | Accepted (2026-10-31) |
+| [0012](/docs/adr/0012-agent-authority-levels-and-complete-mcp-surface) | Agent authority levels (every MCP tool L1, every A2A skill `authority:L1`) and the complete MCP surface (stateless handler, one policy resource, one operator-SOP prompt) | Accepted (2026-11-02) |
