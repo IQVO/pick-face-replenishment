@@ -109,23 +109,23 @@ func reserveFilters(t *testing.T, m ports.PickFaceReadModel) {
 	saveZone(t, m, zone("z-fwd", "S1", "FWD"))
 	saveZone(t, m, zone("z-s2", "S2", "RSV"))
 	for _, l := range []repository.Location{
-		loc("R-1", "z-rsv", ""), loc("R-2", "z-rsv", "Storage"), loc("R-3", "z-rsv", "Staging"),
+		loc(binR1, "z-rsv", ""), loc(binR2, "z-rsv", "Storage"), loc("R-3", "z-rsv", "Staging"),
 		loc("R-4", "z-rsv", ""), loc("B-1", "z-bulk", ""), loc("F-1", "z-fwd", ""), loc("X-1", "z-s2", ""),
 	} {
 		saveLoc(t, m, l)
-		stock(t, m, "S1", l.Code, "SKU-1", 5)
+		stock(t, m, "S1", l.Code, sku1, 5)
 	}
 	must(t, m.DecommissionLocation(bg, "R-4"))
-	if got := reserveBins(t, m, "S1", "SKU-1", "RSV"); !equalSlice(got, []string{"R-1", "R-2"}) {
+	if got := reserveBins(t, m, "S1", sku1, "RSV"); !equalSlice(got, []string{binR1, binR2}) {
 		t.Fatalf("RSV storage, not decommissioned = %v", got)
 	}
-	if got := reserveBins(t, m, "S1", "SKU-1", "RSV", "BULK"); !equalSlice(got, []string{"B-1", "R-1", "R-2"}) {
+	if got := reserveBins(t, m, "S1", sku1, "RSV", "BULK"); !equalSlice(got, []string{"B-1", binR1, binR2}) {
 		t.Fatalf("two reserve zone codes = %v", got)
 	}
-	if got := reserveBins(t, m, "S1", "SKU-1"); len(got) != 0 {
+	if got := reserveBins(t, m, "S1", sku1); len(got) != 0 {
 		t.Fatalf("no zone codes, no reserve bins: %v", got)
 	}
-	if got := reserveBins(t, m, "S1", "SKU-1", "NOPE"); len(got) != 0 {
+	if got := reserveBins(t, m, "S1", sku1, "NOPE"); len(got) != 0 {
 		t.Fatalf("an unknown zone code = %v", got)
 	}
 }
@@ -133,42 +133,42 @@ func reserveFilters(t *testing.T, m ports.PickFaceReadModel) {
 func reserveScope(t *testing.T, m ports.PickFaceReadModel) {
 	saveZone(t, m, zone("z1", "S1", "RSV"))
 	saveZone(t, m, zone("z2", "S2", "RSV"))
-	saveLoc(t, m, loc("R-2", "z1", ""))
-	saveLoc(t, m, loc("R-1", "z1", ""))
+	saveLoc(t, m, loc(binR2, "z1", ""))
+	saveLoc(t, m, loc(binR1, "z1", ""))
 	saveLoc(t, m, loc("Q-1", "z2", ""))
-	stock(t, m, "S1", "R-2", "SKU-1", 4)
-	stock(t, m, "S1", "R-1", "SKU-1", 9)
-	stock(t, m, "S1", "R-1", "SKU-2", 3)
-	stock(t, m, "S2", "Q-1", "SKU-1", 7)
+	stock(t, m, "S1", binR2, sku1, 4)
+	stock(t, m, "S1", binR1, sku1, 9)
+	stock(t, m, "S1", binR1, "SKU-2", 3)
+	stock(t, m, "S2", "Q-1", sku1, 7)
 	// stock recorded under S1 for a bin whose zone belongs to S2 does not count
-	stock(t, m, "S1", "Q-1", "SKU-1", 1)
-	if got := reserveBins(t, m, "S1", "SKU-1", "RSV"); !equalSlice(got, []string{"R-1", "R-2"}) {
+	stock(t, m, "S1", "Q-1", sku1, 1)
+	if got := reserveBins(t, m, "S1", sku1, "RSV"); !equalSlice(got, []string{binR1, binR2}) {
 		t.Fatalf("S1 / SKU-1 = %v", got)
 	}
-	if got := reserveBins(t, m, "S1", "SKU-2", "RSV"); !equalSlice(got, []string{"R-1"}) {
+	if got := reserveBins(t, m, "S1", "SKU-2", "RSV"); !equalSlice(got, []string{binR1}) {
 		t.Fatalf("S1 / SKU-2 = %v", got)
 	}
-	if got := reserveBins(t, m, "S2", "SKU-1", "RSV"); !equalSlice(got, []string{"Q-1"}) {
+	if got := reserveBins(t, m, "S2", sku1, "RSV"); !equalSlice(got, []string{"Q-1"}) {
 		t.Fatalf("S2 / SKU-1 = %v", got)
 	}
-	levels, err := m.ReserveBins(bg, "S1", "SKU-1", []string{"RSV"})
+	levels, err := m.ReserveBins(bg, "S1", sku1, []string{"RSV"})
 	must(t, err)
-	if levels[0] != level("S1", "R-1", "SKU-1", 9, 0, 1) {
+	if levels[0] != level("S1", binR1, sku1, 9, 0, 1) {
 		t.Fatalf("the level comes with the bin: %+v", levels[0])
 	}
 }
 
 func reserveNeedsLayout(t *testing.T, m ports.PickFaceReadModel) {
-	stock(t, m, "S1", "R-1", "SKU-1", 5)
-	if got := reserveBins(t, m, "S1", "SKU-1", "RSV"); len(got) != 0 {
+	stock(t, m, "S1", binR1, sku1, 5)
+	if got := reserveBins(t, m, "S1", sku1, "RSV"); len(got) != 0 {
 		t.Fatalf("a bin whose location was never seen is not a reserve bin: %v", got)
 	}
-	saveLoc(t, m, loc("R-1", "z-rsv", ""))
-	if got := reserveBins(t, m, "S1", "SKU-1", "RSV"); len(got) != 0 {
+	saveLoc(t, m, loc(binR1, "z-rsv", ""))
+	if got := reserveBins(t, m, "S1", sku1, "RSV"); len(got) != 0 {
 		t.Fatalf("a bin whose zone was never seen is not a reserve bin: %v", got)
 	}
 	saveZone(t, m, zone("z-rsv", "S1", "RSV"))
-	if got := reserveBins(t, m, "S1", "SKU-1", "RSV"); !equalSlice(got, []string{"R-1"}) {
+	if got := reserveBins(t, m, "S1", sku1, "RSV"); !equalSlice(got, []string{binR1}) {
 		t.Fatalf("convergent once both arrive: %v", got)
 	}
 }
