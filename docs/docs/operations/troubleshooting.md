@@ -67,7 +67,7 @@ Symptom, cause, check and fix, built from the failure modes visible in the code.
 | 400 | `invalid-site-id`, `invalid-sku`, `invalid-request-id` | blank, over 64 characters, bad encoding, or a request id that does not start with `repl-` | fix the identifier |
 | 400 | `invalid-policy` | `minQty`/`maxQty` missing or not `0 <= min < max`, or `multiple` below 1 | fix the bounds |
 | 400 | `invalid-quantity` | `quantity` below 1 | send at least 1 |
-| 400 | `invalid-limit`, `invalid-cursor`, `invalid-state`, `invalid-status` | `limit` outside 1 to 500, a cursor this API did not issue, an unknown `state` or `status` filter | use the documented values |
+| 400 | `invalid-limit`, `invalid-cursor`, `unknown-query-parameter`, `invalid-state`, `invalid-status` | `limit` empty, repeated or outside 1 to 500, a repeated cursor, a query parameter the list does not declare, a cursor this API did not issue, an unknown `state` or `status` filter | use the documented values |
 | 404 | `policy-not-found`, `replenishment-not-found` | unknown key | check the ids |
 | 409 | `policy-already-exists` | PUT without `If-Match` on an existing policy | send `If-Match` with the current version |
 | 409 | `concurrent-modification` | a stale `If-Match`, `If-Match` on a policy that does not exist, or a racing write | re-read, retry |

@@ -63,6 +63,8 @@ paths:
         Lists the declared policies ordered by site and SKU, a page at a time.
         `cursor` is the opaque `nextCursor` of the previous page; a response
         without `nextCursor` is the last page. `siteId` and `sku` narrow the list.
+        `limit` and `cursor` are single-valued; an empty or repeated `limit`, a
+        repeated `cursor` and any undeclared query parameter are 400.
       tags: [Policies]
       parameters:
         - $ref: "#/components/parameters/Limit"
@@ -858,7 +860,7 @@ components:
                 type: https://errors.pick-face-replenishment.warehouse-systems.dev/invalid-limit
                 title: Limit is invalid
                 status: 400
-                detail: limit must be between 1 and 500
+                detail: limit must be a single integer between 1 and 500
                 instance: /replenishments
             invalidCursor:
               summary: Invalid cursor
@@ -867,6 +869,14 @@ components:
                 title: Cursor is invalid
                 status: 400
                 detail: cursor is not a value returned by this API
+                instance: /replenishments
+            unknownQueryParameter:
+              summary: Undeclared query parameter on a paged list
+              value:
+                type: https://errors.pick-face-replenishment.warehouse-systems.dev/unknown-query-parameter
+                title: Unknown query parameter
+                status: 400
+                detail: "unknown query parameter: offset"
                 instance: /replenishments
             idempotencyKeyRequired:
               summary: Missing Idempotency-Key

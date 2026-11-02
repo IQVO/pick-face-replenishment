@@ -178,5 +178,29 @@ func TestListParametersAreValidated(t *testing.T) {
 			expectProblem(t, f.call(t, http.MethodGet, path+sep+"limit="+limit, ""), http.StatusBadRequest, "invalid-limit")
 		}
 		expectProblem(t, f.call(t, http.MethodGet, path+sep+"cursor=!!!", ""), http.StatusBadRequest, "invalid-cursor")
+		for _, q := range []string{"limit=", "limit=&limit=abc", "limit=5&limit=6"} {
+			expectProblem(t, f.call(t, http.MethodGet, path+sep+q, ""), http.StatusBadRequest, "invalid-limit")
+		}
+		expectProblem(t, f.call(t, http.MethodGet, path+sep+"cursor=a&cursor=b", ""), http.StatusBadRequest, "invalid-cursor")
+	}
+}
+
+func TestPagedListsRejectUndeclaredQueryParameters(t *testing.T) {
+	f := newFixture(t)
+	f.seed(t)
+	for _, path := range []string{"/policies?", "/replenishments?", "/pick-faces?siteId=SITE-1&"} {
+		for _, name := range []string{"offset", "after", "state=Requested&zzz"} {
+			if path == "/policies?" && name == "state=Requested&zzz" {
+				continue
+			}
+			resp := f.call(t, http.MethodGet, path+name+"=1", "")
+			expectProblem(t, resp, http.StatusBadRequest, "unknown-query-parameter")
+		}
+	}
+	// the first offender (sorted) is named
+	resp := f.call(t, http.MethodGet, "/replenishments?zeta=1&alpha=2", "")
+	expectProblem(t, resp, http.StatusBadRequest, "unknown-query-parameter")
+	if d, _ := resp.body["detail"].(string); !strings.Contains(d, "alpha") {
+		t.Fatalf("detail = %q, want it to name alpha", d)
 	}
 }
