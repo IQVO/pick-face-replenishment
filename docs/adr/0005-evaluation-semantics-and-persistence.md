@@ -22,7 +22,7 @@ database schema is where each one becomes enforceable.
 
 - **One detector, many triggers.** Every caller goes through the same
   `Evaluator`, so the sweep, the consumers, the manual request and the
-  pick-face view cannot disagree: `POST /sites/{siteId}/evaluate` (every
+  pick-face view cannot disagree: `POST /sites/{siteId}/evaluations` (every
   forward assignment of the site), a bin level that was applied (that one pick
   face), a new or moved forward assignment (those pick faces), and a manual
   request. `GET /pick-faces` runs the same detector read-only.

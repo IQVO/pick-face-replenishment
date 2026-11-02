@@ -52,7 +52,7 @@ no `DATABASE_URL`, no docker compose, no `t.Skip` gate (`TestPostgresIntegration
 
 | Package | What it proves |
 | --- | --- |
-| `cmd/api` | Postgres mode migrates, enforces `Idempotency-Key` and writes the outbox; a rejection leaves no effect and replays; concurrent requests with one key run once; boot fails closed on an unreachable database |
+| `cmd/api` | Postgres mode migrates, enforces `Idempotency-Key` and writes the outbox; a replay is byte-identical and carries `Idempotency-Replayed: true`, a first execution never does; a reused key is `409`; a rejection leaves no effect and replays; a 5xx rolls back and is never stored; concurrent requests with one key run once (one answer is a first execution); the noun routes are keyed and the retired verb routes are gone; boot fails closed on an unreachable database |
 | `internal/adapters/outbound/postgres` | the repository contract (policy, request, read model, processed events, idempotency store) against real Postgres; migrations apply, rerun as a no-op, and every `down` recreates the previous schema; unit-of-work commit, rollback, panic and nesting; the partial unique index allows one open request per pick face; racing updates; the stale-map guard; outbox ordering, retries, attempt cap and trace context |
 | `internal/adapters/outbound/outbox` | the relay against real Postgres and Kafka publishes the exact envelopes; a rolled-back unit of work publishes nothing; the attempt cap excludes a poison row and a re-armed row is claimed again |
 | `internal/adapters/inbound/kafka` | the inventory, slotting and layout consumers against real Kafka and Postgres |

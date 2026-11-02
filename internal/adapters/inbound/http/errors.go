@@ -13,6 +13,16 @@ import (
 // problemBaseURI is the namespace of this service's RFC 7807 `type` URIs.
 const problemBaseURI = "https://errors.pick-face-replenishment.warehouse-systems.dev/"
 
+// Problem titles several catalogue entries share (one definition, goconst).
+const (
+	titleInvalidSiteID = "Site id is invalid"
+	titleInvalidSKU    = "SKU is invalid"
+	titleInvalidPolicy = "Policy is invalid"
+	slugInvalidSiteID  = "invalid-site-id"
+	slugInvalidSKU     = "invalid-sku"
+	slugInvalidPolicy  = "invalid-policy"
+)
+
 // Errors the adapter itself raises, before or besides the use cases.
 var (
 	// errMalformedRequest marks a body the adapter rejects (bad JSON, unknown
@@ -24,8 +34,10 @@ var (
 	errIfMatchRequired = errors.New("if-match is required")
 	// errInvalidSiteID and errInvalidSKU mark an id outside the OpenAPI
 	// 1..64 character bound (blank ids are the domain's own errors).
-	errInvalidSiteID = errors.New("site id must be 1 to 64 characters")
-	errInvalidSKU    = errors.New("sku must be 1 to 64 characters")
+	// errUnknownQueryParameter marks a query parameter a paged list does not declare.
+	errUnknownQueryParameter = errors.New("unknown query parameter")
+	errInvalidSiteID         = errors.New("site id must be 1 to 64 characters")
+	errInvalidSKU            = errors.New("sku must be 1 to 64 characters")
 )
 
 // problem is the fixed (status, slug, title) of one error category. detail,
@@ -43,13 +55,13 @@ var internalProblem = problem{status: http.StatusInternalServerError, slug: "int
 // Problems the idempotency middleware writes itself, before any use case runs.
 var (
 	idempotencyKeyRequired = problem{status: http.StatusBadRequest, slug: "idempotency-key-required", title: "Idempotency-Key header is required"}
-	idempotencyKeyReused   = problem{status: http.StatusUnprocessableEntity, slug: "idempotency-key-reused", title: "Idempotency-Key was already used with a different request"}
+	idempotencyKeyReused   = problem{status: http.StatusConflict, slug: "idempotency-key-reused", title: "Idempotency-Key was already used with a different request"}
 )
 
 var (
-	invalidSite     = problem{http.StatusBadRequest, "invalid-site-id", "Site id is invalid", "siteId must be 1 to 64 characters and not blank"}
-	invalidSKU      = problem{http.StatusBadRequest, "invalid-sku", "SKU is invalid", "sku must be 1 to 64 characters and not blank"}
-	invalidPolicy   = problem{http.StatusBadRequest, "invalid-policy", "Policy is invalid", "minQty must be at least 0 and below maxQty, and multiple at least 1"}
+	invalidSite     = problem{http.StatusBadRequest, slugInvalidSiteID, titleInvalidSiteID, "siteId must be 1 to 64 characters and not blank"}
+	invalidSKU      = problem{http.StatusBadRequest, slugInvalidSKU, titleInvalidSKU, "sku must be 1 to 64 characters and not blank"}
+	invalidPolicy   = problem{http.StatusBadRequest, slugInvalidPolicy, titleInvalidPolicy, "minQty must be at least 0 and below maxQty, and multiple at least 1"}
 	invalidQuantity = problem{http.StatusBadRequest, "invalid-quantity", "Quantity is invalid", "quantity must be at least 1"}
 	invalidIfMatch  = problem{http.StatusBadRequest, "invalid-if-match", "If-Match is invalid", "If-Match must be a policy version, a non-negative integer"}
 	noSourceStock   = problem{http.StatusUnprocessableEntity, "no-source-stock", "No reserve bin can supply this quantity",
@@ -67,18 +79,19 @@ var problemCatalogue = []struct {
 	{errIfMatchRequired, problem{http.StatusBadRequest, "invalid-if-match", "If-Match is invalid", "send If-Match with the current policy version to remove the policy"}},
 	{errInvalidSiteID, invalidSite},
 	{errInvalidSKU, invalidSKU},
-	{replenishment.ErrBlankSite, problem{http.StatusBadRequest, "invalid-site-id", "Site id is invalid", "siteId must not be blank"}},
-	{policy.ErrBlankSite, problem{http.StatusBadRequest, "invalid-site-id", "Site id is invalid", "siteId must not be blank"}},
-	{replenishment.ErrBlankSKU, problem{http.StatusBadRequest, "invalid-sku", "SKU is invalid", "sku must not be blank"}},
-	{policy.ErrBlankSKU, problem{http.StatusBadRequest, "invalid-sku", "SKU is invalid", "sku must not be blank"}},
+	{replenishment.ErrBlankSite, problem{http.StatusBadRequest, slugInvalidSiteID, titleInvalidSiteID, "siteId must not be blank"}},
+	{policy.ErrBlankSite, problem{http.StatusBadRequest, slugInvalidSiteID, titleInvalidSiteID, "siteId must not be blank"}},
+	{replenishment.ErrBlankSKU, problem{http.StatusBadRequest, slugInvalidSKU, titleInvalidSKU, "sku must not be blank"}},
+	{policy.ErrBlankSKU, problem{http.StatusBadRequest, slugInvalidSKU, titleInvalidSKU, "sku must not be blank"}},
 	{policy.ErrInvalidBounds, invalidPolicy},
 	{policy.ErrInvalidMultiple, invalidPolicy},
-	{policy.ErrInvalidSource, problem{http.StatusBadRequest, "invalid-policy", "Policy is invalid", "source must be DECLARED or PACK_DERIVED"}},
-	{policy.ErrMultipleNotAllowed, problem{http.StatusBadRequest, "invalid-policy", "Policy is invalid", "multiple must be omitted when source is PACK_DERIVED"}},
+	{policy.ErrInvalidSource, problem{http.StatusBadRequest, slugInvalidPolicy, titleInvalidPolicy, "source must be DECLARED or PACK_DERIVED"}},
+	{policy.ErrMultipleNotAllowed, problem{http.StatusBadRequest, slugInvalidPolicy, titleInvalidPolicy, "multiple must be omitted when source is PACK_DERIVED"}},
 	{replenishment.ErrQuantityBelowOne, invalidQuantity},
 	{usecases.ErrInvalidRequestID, problem{status: http.StatusBadRequest, slug: "invalid-request-id", title: "Request id is invalid"}},
 	{usecases.ErrInvalidState, problem{status: http.StatusBadRequest, slug: "invalid-state", title: "State is invalid"}},
 	{usecases.ErrInvalidStatus, problem{status: http.StatusBadRequest, slug: "invalid-status", title: "Status is invalid"}},
+	{errUnknownQueryParameter, problem{status: http.StatusBadRequest, slug: "unknown-query-parameter", title: "Unknown query parameter"}},
 	{usecases.ErrInvalidLimit, problem{status: http.StatusBadRequest, slug: "invalid-limit", title: "Limit is invalid"}},
 	{usecases.ErrInvalidCursor, problem{status: http.StatusBadRequest, slug: "invalid-cursor", title: "Cursor is invalid"}},
 

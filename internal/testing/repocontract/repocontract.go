@@ -18,6 +18,19 @@ import (
 // so a Postgres round trip returns it unchanged.
 var T0 = time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
 
+// Fixture identifiers the suites build their worlds from (one definition
+// each, goconst; the values are arbitrary but shared by every case).
+const (
+	sku1  = "SKU-1"
+	binR1 = "R-1"
+	binR2 = "R-2"
+	replA = "repl-a"
+	replB = "repl-b"
+	replC = "repl-c"
+	replD = "repl-d"
+	repl1 = "repl-1"
+)
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
@@ -54,7 +67,7 @@ var bg = context.Background()
 // sourced from R-01, requested at the given instant.
 func Planned(t *testing.T, id, forwardBin string, at time.Time) *replenishment.Request {
 	t.Helper()
-	return PlannedFor(t, id, "S1", "SKU-1", forwardBin, at)
+	return PlannedFor(t, id, "S1", sku1, forwardBin, at)
 }
 
 // PlannedFor is Planned for any site and SKU.

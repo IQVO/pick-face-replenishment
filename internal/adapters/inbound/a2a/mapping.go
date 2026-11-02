@@ -58,6 +58,14 @@ var (
 	errSKULength    = errors.New("sku must be 1 to 64 characters and not blank")
 )
 
+// Problem titles several catalogue entries share (one definition, goconst).
+const (
+	titleInvalidSiteID = "Site id is invalid"
+	titleInvalidSKU    = "SKU is invalid"
+	slugInvalidSiteID  = "invalid-site-id"
+	slugInvalidSKU     = "invalid-sku"
+)
+
 // catalogueEntry is the fixed (status, slug, title, detail) of one typed error.
 // The detail is ADAPTER-OWNED text: domain error messages carry a package
 // prefix ("policy: site id must not be blank") and repository errors may wrap
@@ -76,12 +84,12 @@ type catalogueEntry struct {
 // entries (409 conflicts, 422 business rejections) are absent on purpose:
 // this agent has no write skill, so they are unreachable.
 var problemCatalogue = []catalogueEntry{
-	{errSiteIDLength, http.StatusBadRequest, "invalid-site-id", "Site id is invalid", errSiteIDLength.Error()},
-	{errSKULength, http.StatusBadRequest, "invalid-sku", "SKU is invalid", errSKULength.Error()},
-	{replenishment.ErrBlankSite, http.StatusBadRequest, "invalid-site-id", "Site id is invalid", "siteId must not be blank"},
-	{policy.ErrBlankSite, http.StatusBadRequest, "invalid-site-id", "Site id is invalid", "siteId must not be blank"},
-	{replenishment.ErrBlankSKU, http.StatusBadRequest, "invalid-sku", "SKU is invalid", "sku must not be blank"},
-	{policy.ErrBlankSKU, http.StatusBadRequest, "invalid-sku", "SKU is invalid", "sku must not be blank"},
+	{errSiteIDLength, http.StatusBadRequest, slugInvalidSiteID, titleInvalidSiteID, errSiteIDLength.Error()},
+	{errSKULength, http.StatusBadRequest, slugInvalidSKU, titleInvalidSKU, errSKULength.Error()},
+	{replenishment.ErrBlankSite, http.StatusBadRequest, slugInvalidSiteID, titleInvalidSiteID, "siteId must not be blank"},
+	{policy.ErrBlankSite, http.StatusBadRequest, slugInvalidSiteID, titleInvalidSiteID, "siteId must not be blank"},
+	{replenishment.ErrBlankSKU, http.StatusBadRequest, slugInvalidSKU, titleInvalidSKU, "sku must not be blank"},
+	{policy.ErrBlankSKU, http.StatusBadRequest, slugInvalidSKU, titleInvalidSKU, "sku must not be blank"},
 	{usecases.ErrInvalidRequestID, http.StatusBadRequest, "invalid-request-id", "Request id is invalid", ""},
 	{usecases.ErrInvalidState, http.StatusBadRequest, "invalid-state", "State is invalid", ""},
 	{usecases.ErrInvalidStatus, http.StatusBadRequest, "invalid-status", "Status is invalid", ""},

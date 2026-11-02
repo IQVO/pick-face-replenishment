@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"unicode/utf8"
 
+	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -54,18 +56,67 @@ func policyKey(r *http.Request) (site, sku string, err error) {
 }
 
 // intParam reads an optional positive integer query parameter. Absent is
-// (0, nil); present but not a positive integer is invalid (the use case owns
-// the upper bound).
+// (0, nil); present but empty, repeated or not a positive integer is invalid
+// (the use case owns the upper bound).
 func intParam(r *http.Request, name string, invalid error) (int, error) {
-	raw := r.URL.Query().Get(name)
-	if raw == "" {
+	vals, present := r.URL.Query()[name]
+	if !present {
 		return 0, nil
 	}
-	n, err := strconv.Atoi(raw)
+	if len(vals) != 1 || vals[0] == "" {
+		return 0, fmt.Errorf("%w: %s must be a single positive integer", invalid, name)
+	}
+	n, err := strconv.Atoi(vals[0])
 	if err != nil || n < 1 {
 		return 0, fmt.Errorf("%w: %s must be a positive integer", invalid, name)
 	}
 	return n, nil
+}
+
+// cursorParam reads the optional opaque cursor. Absent or empty is "" (first
+// page); a repeated cursor is invalid.
+func cursorParam(r *http.Request) (string, error) {
+	vals := r.URL.Query()["cursor"]
+	if len(vals) > 1 {
+		return "", fmt.Errorf("%w: cursor must be given once", usecases.ErrInvalidCursor)
+	}
+	if len(vals) == 0 {
+		return "", nil
+	}
+	return vals[0], nil
+}
+
+// unknownQueryParam returns the first (sorted) query parameter that is neither
+// limit, cursor nor in allowed, or "".
+func unknownQueryParam(r *http.Request, allowed ...string) string {
+	known := map[string]bool{"limit": true, "cursor": true}
+	for _, a := range allowed {
+		known[a] = true
+	}
+	var names []string
+	for name := range r.URL.Query() {
+		if !known[name] {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	return names[0]
+}
+
+// pagingParams validates the query of a paged list: undeclared parameters,
+// then limit and cursor.
+func pagingParams(r *http.Request, allowed ...string) (limit int, cursor string, err error) {
+	if name := unknownQueryParam(r, allowed...); name != "" {
+		return 0, "", fmt.Errorf("%w: %s", errUnknownQueryParameter, name)
+	}
+	if limit, err = intParam(r, "limit", usecases.ErrInvalidLimit); err != nil {
+		return 0, "", err
+	}
+	cursor, err = cursorParam(r)
+	return limit, cursor, err
 }
 
 // parseIfMatch reads If-Match, the policy version with or without double

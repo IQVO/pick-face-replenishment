@@ -23,9 +23,9 @@ sequenceDiagram
         H-->>C: 400 idempotency-key-required
     else key already stored
         alt same method, path and body
-            H-->>C: replay the stored answer (2xx or 4xx)
+            H-->>C: replay the stored answer (2xx or 4xx) with Idempotency-Replayed true
         else different request
-            H-->>C: 422 idempotency-key-reused
+            H-->>C: 409 idempotency-key-reused
         end
     else new key
         H->>DB: begin unit of work

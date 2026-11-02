@@ -31,7 +31,7 @@ The terms of the context and the code identifier that implements each one.
 | Verdict | The detector's result: `Raise`, `Healthy`, `AlreadyOpen`, `NoPolicy`, `NoSource` | `detection.Kind` |
 | Pick-face status | The REST view of a verdict: `BELOW_MIN`, `OK`, `NO_SOURCE`, `NO_POLICY` | `usecases.StatusBelowMin` and siblings |
 | Source bin policy | The versioned rule that picks the reserve bin; v1 is `fullest-reserve-bin-v1` | `detection.SourceBinPolicy`, `detection.FullestReserve` |
-| Sweep | `POST /sites/{siteId}/evaluate`: detect over every pick face of a site; converges | `usecases.EvaluateSite` |
+| Sweep | `POST /sites/{siteId}/evaluations`: detect over every pick face of a site; converges | `usecases.EvaluateSite` |
 | Local copy | An event-fed table this context reads instead of calling a sibling | `bin_stock_levels`, `forward_assignments`, `zones`, `locations` |
 | Forward map | The site's full SKU-to-slot assignment from the latest approved slot plan, with the plan's `approved_at` stamp | `forward_assignments`, `forward_assignment_maps` |
 | Stale map | A `SlotPlanApproved` whose `approved_at` is not after the recorded one; ignored | `ApplyForwardAssignmentMap.isStale` |

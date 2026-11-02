@@ -18,9 +18,13 @@ import (
 	"github.com/claudioed/pick-face-replenishment/internal/application/repository"
 )
 
-// IdempotencyKeyHeader is the request header a caller supplies on a POST
-// wrapped by Idempotency.Middleware.
+// IdempotencyKeyHeader is the request header a caller supplies on a POST or
+// PATCH wrapped by Idempotency.Middleware.
 const IdempotencyKeyHeader = "Idempotency-Key"
+
+// IdempotencyReplayedHeader is the response header ("true") of every replayed
+// answer, and only of a replay: the first execution never carries it.
+const IdempotencyReplayedHeader = "Idempotency-Replayed"
 
 // maxIdempotencyKeyLen is the OpenAPI maxLength of the key.
 const maxIdempotencyKeyLen = 128
@@ -36,7 +40,8 @@ var (
 // adapter. The argument in short:
 //
 //   - A key that already has a stored answer replays it (same fingerprint:
-//     method, path and body) or is 422 idempotency-key-reused (different
+//     method, path and SHA-256 of the body) with the response header
+//     Idempotency-Replayed: true, or is 409 idempotency-key-reused (different
 //     fingerprint). Nothing runs.
 //   - A new key runs the handler INSIDE one unit of work. A 2xx answer is saved
 //     in that same transaction, so the effects, their outbox rows and the
@@ -157,6 +162,13 @@ func (c *capture) Write(b []byte) (int, error) {
 	return c.body.Write(b)
 }
 
+// serveFresh needs no SAVEPOINT (unlike the join-the-transaction shape of the
+// sibling contexts): a 4xx rolls the WHOLE unit of work back (errRollback) and is
+// stored on its own afterwards, so a handler that mapped a failed statement
+// (23505 -> 409) over an ABORTED transaction never reaches a failing outcome
+// UPDATE; and a 2xx over an aborted transaction fails in saveAndReread (25P02),
+// rolls back and answers 500, so it is neither returned nor cached. Pinned by
+// cmd/api/idempotency_aborted_integration_test.go.
 func (m *Idempotency) serveFresh(w http.ResponseWriter, r *http.Request, next http.Handler, key, fp string) {
 	var (
 		out    *capture
@@ -268,10 +280,11 @@ func (m *Idempotency) finishRejected(w http.ResponseWriter, r *http.Request, key
 }
 
 // replay answers a request whose key already has a stored answer: that answer
-// when the fingerprint matches, 422 when it does not.
+// (marked Idempotency-Replayed: true) when the fingerprint matches, 409 when
+// it does not.
 func replay(w http.ResponseWriter, r *http.Request, rec repository.IdempotencyRecord, fp string) {
 	if rec.Fingerprint != fp {
-		writeProblem(w, r, idempotencyKeyReused, "the Idempotency-Key was used with a different request body")
+		writeProblem(w, r, idempotencyKeyReused, "the Idempotency-Key was used with a different request (method, path or body)")
 		return
 	}
 	var answer storedAnswer
@@ -284,6 +297,7 @@ func replay(w http.ResponseWriter, r *http.Request, rec repository.IdempotencyRe
 			w.Header().Add(k, v)
 		}
 	}
+	w.Header().Set(IdempotencyReplayedHeader, "true")
 	w.WriteHeader(rec.Status)
 	_, _ = w.Write(answer.Body)
 }

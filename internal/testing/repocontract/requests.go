@@ -58,24 +58,24 @@ func requestNotFound(t *testing.T, r ports.RequestRepo) {
 }
 
 func requestRoundTripOpen(t *testing.T, r ports.RequestRepo) {
-	in := Planned(t, "repl-1", "F-01", T0)
+	in := Planned(t, repl1, "F-01", T0)
 	save(t, r, in)
-	if got := get(t, r, "repl-1").Snapshot(); !sameSnapshot(got, in.Snapshot()) {
+	if got := get(t, r, repl1).Snapshot(); !sameSnapshot(got, in.Snapshot()) {
 		t.Fatalf("got %+v\nwant %+v", got, in.Snapshot())
 	}
 }
 
 func requestRoundTripClosed(t *testing.T, r ports.RequestRepo) {
-	done := Planned(t, "repl-1", "F-01", T0)
+	done := Planned(t, repl1, "F-01", T0)
 	save(t, r, done)
-	rel := replenishment.Relocation{RelocationID: "rel-1", SKU: "SKU-1", FromBin: "R-01", ToBin: "F-01", Quantity: 7, Reason: "REPLENISHMENT", SourceRef: "repl-1"}
+	rel := replenishment.Relocation{RelocationID: "rel-1", SKU: sku1, FromBin: "R-01", ToBin: "F-01", Quantity: 7, Reason: "REPLENISHMENT", SourceRef: repl1}
 	must(t, done.Complete(rel, T0.Add(time.Hour)))
 	must(t, r.Save(bg, done, 1))
 	cancelled := Planned(t, "repl-2", "F-02", T0)
 	save(t, r, cancelled)
 	must(t, cancelled.Cancel(replenishment.ReasonAssignmentChanged, T0.Add(2*time.Hour)))
 	must(t, r.Save(bg, cancelled, 1))
-	if got := get(t, r, "repl-1").Snapshot(); !sameSnapshot(got, done.Snapshot()) {
+	if got := get(t, r, repl1).Snapshot(); !sameSnapshot(got, done.Snapshot()) {
 		t.Fatalf("completed: got %+v\nwant %+v", got, done.Snapshot())
 	}
 	if got := get(t, r, "repl-2").Snapshot(); !sameSnapshot(got, cancelled.Snapshot()) {
@@ -84,13 +84,13 @@ func requestRoundTripClosed(t *testing.T, r ports.RequestRepo) {
 }
 
 func requestInsertTwice(t *testing.T, r ports.RequestRepo) {
-	first := Planned(t, "repl-1", "F-01", T0)
+	first := Planned(t, repl1, "F-01", T0)
 	save(t, r, first)
 	wantErr(t, r.Save(bg, first, 0), repository.ErrConcurrentModification)
 }
 
 func requestOneOpenPerPickFace(t *testing.T, r ports.RequestRepo) {
-	save(t, r, Planned(t, "repl-1", "F-01", T0))
+	save(t, r, Planned(t, repl1, "F-01", T0))
 	wantErr(t, r.Save(bg, Planned(t, "repl-2", "F-01", T0), 0), repository.ErrOpenRequestExists)
 	if _, err := r.Get(bg, "repl-2"); err == nil {
 		t.Fatal("the refused request must not have been stored")
@@ -98,7 +98,7 @@ func requestOneOpenPerPickFace(t *testing.T, r ports.RequestRepo) {
 }
 
 func requestClosedFreesPickFace(t *testing.T, r ports.RequestRepo) {
-	first := Planned(t, "repl-1", "F-01", T0)
+	first := Planned(t, repl1, "F-01", T0)
 	save(t, r, first)
 	must(t, first.Cancel(replenishment.ReasonOperator, T0))
 	must(t, r.Save(bg, first, 1))
@@ -111,14 +111,14 @@ func requestClosedFreesPickFace(t *testing.T, r ports.RequestRepo) {
 }
 
 func requestOpenRuleScope(t *testing.T, r ports.RequestRepo) {
-	save(t, r, Planned(t, "repl-1", "F-01", T0))
+	save(t, r, Planned(t, repl1, "F-01", T0))
 	save(t, r, Planned(t, "repl-2", "F-02", T0))
 	save(t, r, PlannedFor(t, "repl-3", "S1", "SKU-2", "F-01", T0))
-	save(t, r, PlannedFor(t, "repl-4", "S2", "SKU-1", "F-01", T0))
+	save(t, r, PlannedFor(t, "repl-4", "S2", sku1, "F-01", T0))
 }
 
 func requestUpdateGuard(t *testing.T, r ports.RequestRepo) {
-	req := Planned(t, "repl-1", "F-01", T0)
+	req := Planned(t, repl1, "F-01", T0)
 	save(t, r, req)
 	must(t, req.Cancel(replenishment.ReasonOperator, T0.Add(time.Hour)))
 	wantErr(t, r.Save(bg, req, 7), repository.ErrConcurrentModification)
@@ -129,48 +129,48 @@ func requestUpdateGuard(t *testing.T, r ports.RequestRepo) {
 }
 
 func requestNoPendingEvents(t *testing.T, r ports.RequestRepo) {
-	save(t, r, Planned(t, "repl-1", "F-01", T0))
-	if ev := get(t, r, "repl-1").DomainEvents(); len(ev) != 0 {
+	save(t, r, Planned(t, repl1, "F-01", T0))
+	if ev := get(t, r, repl1).DomainEvents(); len(ev) != 0 {
 		t.Fatalf("events = %v", ev)
 	}
 }
 
 func requestOpenLookups(t *testing.T, r ports.RequestRepo) {
 	save(t, r, Planned(t, "repl-2", "F-02", T0))
-	save(t, r, Planned(t, "repl-1", "F-01", T0))
+	save(t, r, Planned(t, repl1, "F-01", T0))
 	closed := Planned(t, "repl-0", "F-03", T0)
 	save(t, r, closed)
 	must(t, closed.Cancel(replenishment.ReasonOperator, T0))
 	must(t, r.Save(bg, closed, 1))
 	save(t, r, PlannedFor(t, "repl-3", "S1", "SKU-2", "F-04", T0))
-	save(t, r, PlannedFor(t, "repl-4", "S2", "SKU-1", "F-01", T0))
+	save(t, r, PlannedFor(t, "repl-4", "S2", sku1, "F-01", T0))
 
-	got, found, err := r.OpenFor(bg, "S1", "F-01", "SKU-1")
+	got, found, err := r.OpenFor(bg, "S1", "F-01", sku1)
 	must(t, err)
-	if !found || got.ID() != "repl-1" {
+	if !found || got.ID() != repl1 {
 		t.Fatalf("OpenFor = %v %v", got, found)
 	}
-	if _, found, err = r.OpenFor(bg, "S1", "F-03", "SKU-1"); err != nil || found {
+	if _, found, err = r.OpenFor(bg, "S1", "F-03", sku1); err != nil || found {
 		t.Fatalf("a closed request is not open: %v %v", found, err)
 	}
-	bySKU, err := r.OpenForSKU(bg, "S1", "SKU-1")
+	bySKU, err := r.OpenForSKU(bg, "S1", sku1)
 	must(t, err)
-	if !equalSlice(ids(bySKU), []string{"repl-1", "repl-2"}) {
+	if !equalSlice(ids(bySKU), []string{repl1, "repl-2"}) {
 		t.Fatalf("OpenForSKU = %v", ids(bySKU))
 	}
 	bySite, err := r.OpenForSite(bg, "S1")
 	must(t, err)
-	if !equalSlice(ids(bySite), []string{"repl-1", "repl-2", "repl-3"}) {
+	if !equalSlice(ids(bySite), []string{repl1, "repl-2", "repl-3"}) {
 		t.Fatalf("OpenForSite = %v", ids(bySite))
 	}
 }
 
 func seedForListing(t *testing.T, r ports.RequestRepo) {
-	save(t, r, Planned(t, "repl-a", "F-01", T0))
-	save(t, r, Planned(t, "repl-b", "F-02", T0.Add(time.Minute)))
-	save(t, r, Planned(t, "repl-c", "F-03", T0.Add(time.Minute)))
-	save(t, r, PlannedFor(t, "repl-d", "S2", "SKU-2", "F-01", T0.Add(2*time.Minute)))
-	closed := get(t, r, "repl-a")
+	save(t, r, Planned(t, replA, "F-01", T0))
+	save(t, r, Planned(t, replB, "F-02", T0.Add(time.Minute)))
+	save(t, r, Planned(t, replC, "F-03", T0.Add(time.Minute)))
+	save(t, r, PlannedFor(t, replD, "S2", "SKU-2", "F-01", T0.Add(2*time.Minute)))
+	closed := get(t, r, replA)
 	must(t, closed.Cancel(replenishment.ReasonOperator, T0.Add(time.Hour)))
 	must(t, r.Save(bg, closed, 1))
 }
@@ -184,17 +184,17 @@ func listIDs(t *testing.T, r ports.RequestRepo, f repository.RequestFilter, afte
 
 func requestListPaging(t *testing.T, r ports.RequestRepo) {
 	seedForListing(t, r)
-	want := []string{"repl-d", "repl-c", "repl-b", "repl-a"} // requested-at desc, then id desc
+	want := []string{replD, replC, replB, replA} // requested-at desc, then id desc
 	if got := listIDs(t, r, repository.RequestFilter{}, "", 100); !equalSlice(got, want) {
 		t.Fatalf("all = %v, want %v", got, want)
 	}
 	if got := listIDs(t, r, repository.RequestFilter{}, "", 2); !equalSlice(got, want[:2]) {
 		t.Fatalf("first page = %v", got)
 	}
-	if got := listIDs(t, r, repository.RequestFilter{}, "repl-c", 2); !equalSlice(got, want[2:]) {
+	if got := listIDs(t, r, repository.RequestFilter{}, replC, 2); !equalSlice(got, want[2:]) {
 		t.Fatalf("second page = %v", got)
 	}
-	if got := listIDs(t, r, repository.RequestFilter{}, "repl-a", 2); len(got) != 0 {
+	if got := listIDs(t, r, repository.RequestFilter{}, replA, 2); len(got) != 0 {
 		t.Fatalf("past the end = %v", got)
 	}
 	if got := listIDs(t, r, repository.RequestFilter{}, "repl-nope", 2); len(got) != 0 {
@@ -209,11 +209,11 @@ func requestListFilters(t *testing.T, r ports.RequestRepo) {
 		filter repository.RequestFilter
 		want   []string
 	}{
-		{"site", repository.RequestFilter{SiteID: "S2"}, []string{"repl-d"}},
-		{"sku", repository.RequestFilter{SKU: "SKU-1"}, []string{"repl-c", "repl-b", "repl-a"}},
-		{"state", repository.RequestFilter{State: replenishment.StateCancelled}, []string{"repl-a"}},
-		{"open", repository.RequestFilter{State: replenishment.StateRequested}, []string{"repl-d", "repl-c", "repl-b"}},
-		{"all three", repository.RequestFilter{SiteID: "S1", SKU: "SKU-1", State: replenishment.StateRequested}, []string{"repl-c", "repl-b"}},
+		{"site", repository.RequestFilter{SiteID: "S2"}, []string{replD}},
+		{"sku", repository.RequestFilter{SKU: sku1}, []string{replC, replB, replA}},
+		{"state", repository.RequestFilter{State: replenishment.StateCancelled}, []string{replA}},
+		{"open", repository.RequestFilter{State: replenishment.StateRequested}, []string{replD, replC, replB}},
+		{"all three", repository.RequestFilter{SiteID: "S1", SKU: sku1, State: replenishment.StateRequested}, []string{replC, replB}},
 	}
 	for _, c := range cases {
 		if got := listIDs(t, r, c.filter, "", 100); !equalSlice(got, c.want) {

@@ -59,7 +59,7 @@ func (w *world) commandFails(fragment string) error {
 		return fmt.Errorf("command succeeded, want an error containing %q", fragment)
 	}
 	if !strings.Contains(w.err.Error(), fragment) {
-		return fmt.Errorf("command failed with %q, want it to contain %q", w.err, fragment)
+		return fmt.Errorf("command failed with %q, want it to contain %q", w.err.Error(), fragment)
 	}
 	return nil
 }

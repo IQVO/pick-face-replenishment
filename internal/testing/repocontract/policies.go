@@ -39,14 +39,14 @@ func PolicyRepo(t *testing.T, newRepo func(t *testing.T) ports.PolicyRepo) {
 }
 
 func policyNotFound(t *testing.T, r ports.PolicyRepo) {
-	_, err := r.Get(bg, "S1", "SKU-1")
+	_, err := r.Get(bg, "S1", sku1)
 	wantErr(t, err, repository.ErrPolicyNotFound)
 }
 
 func policyRoundTrip(t *testing.T, r ports.PolicyRepo) {
-	in := record(t, "S1", "SKU-1", 10, 60, 6)
+	in := record(t, "S1", sku1, 10, 60, 6)
 	must(t, r.Save(bg, in, 0))
-	got, err := r.Get(bg, "S1", "SKU-1")
+	got, err := r.Get(bg, "S1", sku1)
 	must(t, err)
 	if got.Policy != in.Policy || !got.DeclaredAt.Equal(T0) {
 		t.Fatalf("got %+v, want %+v", got, in)
@@ -54,19 +54,19 @@ func policyRoundTrip(t *testing.T, r ports.PolicyRepo) {
 }
 
 func policyInsertTwice(t *testing.T, r ports.PolicyRepo) {
-	must(t, r.Save(bg, record(t, "S1", "SKU-1", 10, 60, 1), 0))
-	wantErr(t, r.Save(bg, record(t, "S1", "SKU-1", 1, 9, 1), 0), repository.ErrPolicyAlreadyExists)
+	must(t, r.Save(bg, record(t, "S1", sku1, 10, 60, 1), 0))
+	wantErr(t, r.Save(bg, record(t, "S1", sku1, 1, 9, 1), 0), repository.ErrPolicyAlreadyExists)
 }
 
 func policyUpdateGuard(t *testing.T, r ports.PolicyRepo) {
-	first := record(t, "S1", "SKU-1", 10, 60, 1)
+	first := record(t, "S1", sku1, 10, 60, 1)
 	must(t, r.Save(bg, first, 0))
 	next, err := first.Policy.WithBounds(20, 80, 2)
 	must(t, err)
 	wantErr(t, r.Save(bg, repository.PolicyRecord{Policy: next, DeclaredAt: T0}, 7), repository.ErrConcurrentModification)
 	later := T0.Add(2 * time.Hour)
 	must(t, r.Save(bg, repository.PolicyRecord{Policy: next, DeclaredAt: later}, 1))
-	got, err := r.Get(bg, "S1", "SKU-1")
+	got, err := r.Get(bg, "S1", sku1)
 	must(t, err)
 	if got.Policy != next || !got.DeclaredAt.Equal(later) {
 		t.Fatalf("after update: %+v", got)
@@ -77,19 +77,19 @@ func policyUpdateGuard(t *testing.T, r ports.PolicyRepo) {
 }
 
 func policyDeleteGuard(t *testing.T, r ports.PolicyRepo) {
-	must(t, r.Save(bg, record(t, "S1", "SKU-1", 10, 60, 1), 0))
-	wantErr(t, r.Delete(bg, "S1", "SKU-1", 9), repository.ErrConcurrentModification)
+	must(t, r.Save(bg, record(t, "S1", sku1, 10, 60, 1), 0))
+	wantErr(t, r.Delete(bg, "S1", sku1, 9), repository.ErrConcurrentModification)
 	wantErr(t, r.Delete(bg, "S1", "SKU-404", 1), repository.ErrPolicyNotFound)
-	must(t, r.Delete(bg, "S1", "SKU-1", 1))
-	_, err := r.Get(bg, "S1", "SKU-1")
+	must(t, r.Delete(bg, "S1", sku1, 1))
+	_, err := r.Get(bg, "S1", sku1)
 	wantErr(t, err, repository.ErrPolicyNotFound)
 }
 
 func policyRedeclare(t *testing.T, r ports.PolicyRepo) {
-	must(t, r.Save(bg, record(t, "S1", "SKU-1", 10, 60, 1), 0))
-	must(t, r.Delete(bg, "S1", "SKU-1", 1))
-	must(t, r.Save(bg, record(t, "S1", "SKU-1", 5, 30, 1), 0))
-	got, err := r.Get(bg, "S1", "SKU-1")
+	must(t, r.Save(bg, record(t, "S1", sku1, 10, 60, 1), 0))
+	must(t, r.Delete(bg, "S1", sku1, 1))
+	must(t, r.Save(bg, record(t, "S1", sku1, 5, 30, 1), 0))
+	got, err := r.Get(bg, "S1", sku1)
 	must(t, err)
 	if got.Policy.MinQty != 5 || got.Policy.Version != 1 {
 		t.Fatalf("got %+v", got)

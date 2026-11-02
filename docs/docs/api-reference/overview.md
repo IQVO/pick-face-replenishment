@@ -28,8 +28,8 @@ sidebar_position: 1
 | Replenishments | `POST /replenishments` | `RaiseManualRequest` | `201`, `Location: /replenishments/<requestId>` |
 | Replenishments | `GET /replenishments` | `ListRequests` | `200 {items, nextCursor?}`, newest first |
 | Replenishments | `GET /replenishments/{requestId}` | `GetRequest` | `200`, the request |
-| Replenishments | `POST /replenishments/{requestId}/cancel` | `CancelRequest` | `200`, the Cancelled request |
-| Sites | `POST /sites/{siteId}/evaluate` | `EvaluateSite` | `200`, the sweep summary |
+| Replenishments | `POST /replenishments/{requestId}/cancellations` | `CancelRequest` | `200`, the Cancelled request |
+| Sites | `POST /sites/{siteId}/evaluations` | `EvaluateSite` | `200`, the sweep summary |
 | Health | `GET /healthz`, `GET /readyz` | | `200` / `503` ([Runbook](/docs/operations/runbook#readiness-and-shutdown)) |
 
 The router serves exactly these 12 operations: `TestRouterServesExactlyTheDocumentedOperations` in
@@ -40,10 +40,12 @@ The service serves no `/metrics` endpoint (see [Observability](/docs/operations/
 
 - **Bodies.** Strict JSON: unknown fields, trailing data, an empty required body and bodies over 64 KiB are
   `400 malformed-request`. JSON names are camelCase on REST and snake_case in event `data`.
-- **`Idempotency-Key`** is required on the three POSTs (`/replenishments`, `/replenishments/{requestId}/cancel`,
-  `/sites/{siteId}/evaluate`) when the service runs on Postgres: a missing or over-128-character key is
-  `400 idempotency-key-required`, the same key and body replays the stored answer (4xx included), the same key with
-  another body is `422 idempotency-key-reused`. A 5xx is never stored. The PUT and DELETE of a policy do not take it: they are guarded by `If-Match`.
+- **`Idempotency-Key`** is required on the three POSTs (`/replenishments`, `/replenishments/{requestId}/cancellations`,
+  `/sites/{siteId}/evaluations`) when the service runs on Postgres: a missing or over-128-character key is
+  `400 idempotency-key-required`, the same key, method, path and body replays the stored answer (4xx included,
+  byte-identical, with the response header `Idempotency-Replayed: true`; a first execution never carries it), the same
+  key with another method, path or body is `409 idempotency-key-reused`. A 5xx is never stored. The PUT and DELETE of a
+  policy do not take it: they are guarded by `If-Match`.
 - **Policy versions.** `PUT /policies/{siteId}/{sku}` without `If-Match` creates the policy at version 1
   (`409 policy-already-exists` when it exists); with `If-Match: <version>` (quoted or bare integer) it replaces the
   policy only when that is the current version (`409 concurrent-modification` otherwise). `DELETE` without
@@ -51,12 +53,14 @@ The service serves no `/metrics` endpoint (see [Observability](/docs/operations/
 - **Paging.** `limit` (1 to 500, default 100) and the opaque `cursor` (the previous page's `nextCursor`, base64url of
   the last key). A response without `nextCursor` is the last page. `GET /pick-faces` takes the required `siteId` and
   an optional `status` (`BELOW_MIN`, `OK`, `NO_SOURCE`, `NO_POLICY`); `GET /replenishments` takes `siteId`, `sku` and
-  `state` (`Requested`, `Completed`, `Cancelled`); `GET /policies` takes `siteId` and `sku`.
+  `state` (`Requested`, `Completed`, `Cancelled`); `GET /policies` takes `siteId` and `sku`. `limit` and `cursor` are
+  single-valued: an empty or repeated `limit` is `400 invalid-limit`, a repeated `cursor` is `400 invalid-cursor`, and
+  any query parameter a paged list does not declare is `400 unknown-query-parameter` (naming the first one).
 - **Errors** are RFC 7807 `application/problem+json` with
   `type = https://errors.pick-face-replenishment.warehouse-systems.dev/<slug>` from one table (`problemCatalogue` in
   `internal/adapters/inbound/http/errors.go`). The slugs are `malformed-request`, `invalid-if-match`,
   `invalid-site-id`, `invalid-sku`, `invalid-policy`, `invalid-quantity`, `invalid-request-id`, `invalid-state`,
-  `invalid-status`, `invalid-limit`, `invalid-cursor`, `policy-not-found`, `replenishment-not-found`,
+  `invalid-status`, `invalid-limit`, `invalid-cursor`, `unknown-query-parameter`, `policy-not-found`, `replenishment-not-found`,
   `policy-already-exists`, `replenishment-already-open`, `replenishment-not-open`, `concurrent-modification`,
   `no-forward-assignment`, `no-policy`, `no-source-stock`, `nothing-to-replenish`, `quantity-exceeds-max`,
   `idempotency-key-required`, `idempotency-key-reused` and `internal-error`. Causes and fixes are on

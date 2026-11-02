@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -57,5 +58,37 @@ func TestParseIfMatch(t *testing.T) {
 	}
 	if _, present, err := parseIfMatch(httptest.NewRequest(http.MethodPut, "/", http.NoBody)); present || err != nil {
 		t.Fatalf("absent header: present %v err %v", present, err)
+	}
+}
+
+func TestPagingParamsTable(t *testing.T) {
+	cases := []struct {
+		name, query string
+		limit       int
+		cursor      string
+		wantErr     error
+	}{
+		{"absent", "", 0, "", nil},
+		{"valid", "limit=5&cursor=abc", 5, "abc", nil},
+		{"empty limit", "limit=", 0, "", usecases.ErrInvalidLimit},
+		{"repeated limit", "limit=1&limit=2", 0, "", usecases.ErrInvalidLimit},
+		{"empty then garbage", "limit=&limit=zz", 0, "", usecases.ErrInvalidLimit},
+		{"garbage limit", "limit=abc", 0, "", usecases.ErrInvalidLimit},
+		{"zero limit", "limit=0", 0, "", usecases.ErrInvalidLimit},
+		{"repeated cursor", "cursor=a&cursor=b", 0, "", usecases.ErrInvalidCursor},
+		{"unknown", "offset=3", 0, "", errUnknownQueryParameter},
+		{"declared filter", "siteId=S", 0, "", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/x?"+c.query, http.NoBody)
+			limit, cursor, err := pagingParams(r, "siteId")
+			if !errors.Is(err, c.wantErr) || (c.wantErr == nil && err != nil) {
+				t.Fatalf("err = %v, want %v", err, c.wantErr)
+			}
+			if limit != c.limit || cursor != c.cursor {
+				t.Fatalf("got %d %q, want %d %q", limit, cursor, c.limit, c.cursor)
+			}
+		})
 	}
 }
