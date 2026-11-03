@@ -283,7 +283,13 @@ only when enabled. Full list of values and probes:
 `/mcp`, health at `/healthz`, no auth) over the same read use cases as REST,
 with five tools: `list_policies`, `get_policy`, `list_pick_faces`,
 `list_replenishments`, `get_replenishment`. No write tool; the build fails
-if one appears.
+if one appears. Per ADR 0012 (Agentic Standard v2) every tool and every A2A
+skill declares authority level **L1** (`com.warehouse/authority` in
+`tools/list` `_meta`; `authority:L1` skill tag), the handler is stateless
+(the 2026-07-28 per-request handshake works, legacy `initialize` still
+answers), and the surface is completed with one resource
+(`warehouse://pick-face-replenishment/policies/{siteId}/{sku}`) and one
+prompt (`cover_below_min_pick_faces`).
 
 ### Running the A2A agent in Kubernetes
 

@@ -89,7 +89,7 @@ func Card(cfg Config) *a2a.AgentCard {
 				ID:          skillPickFaceStatus,
 				Name:        "Pick-face status of a site",
 				Description: "Read the forward pick faces of one site ordered by forward bin, a page at a time (limit 1..500, default 100): SKU, onHand, reserved and available quantity, the policy minQty and maxQty (absent without a policy), the openRequestId (absent without an open request) and a status: BELOW_MIN (projected level at or below the minimum), OK, NO_SOURCE (below minimum but no reserve bin can supply it) or NO_POLICY. Optionally only one status. Pass the returned nextCursor for the next page. siteId is required.",
-				Tags:        []string{"replenishment", "pick-face", "read"},
+				Tags:        []string{"replenishment", "pick-face", "read", "authority:L1"},
 				InputModes:  []string{mediaTypeJSON},
 				Examples: []string{
 					`{"skill":"pick_face_status","arguments":{"siteId":"SITE-1"}}`,
@@ -100,7 +100,7 @@ func Card(cfg Config) *a2a.AgentCard {
 				ID:          skillReplenishmentLookup,
 				Name:        "Replenishment request lookup",
 				Description: "Read replenishment requests. With requestId (starting with repl-) it answers that one request: forward and reserve source bin, quantity, movedQuantity once completed, priority, state (Requested, Completed or Cancelled), the policy min and max it was raised under, requestedAt, completedAt or cancelledAt with cancelReason, and version. Without requestId it lists requests newest first, a page at a time (limit 1..500, default 100), optionally only those of one siteId, one sku and/or one state; pass the returned nextCursor for the next page. requestId cannot be combined with filters or paging.",
-				Tags:        []string{"replenishment", "request", "read"},
+				Tags:        []string{"replenishment", "request", "read", "authority:L1"},
 				InputModes:  []string{mediaTypeJSON},
 				Examples: []string{
 					`{"skill":"replenishment_lookup","arguments":{"requestId":"repl-1b4e28ba"}}`,
