@@ -34,6 +34,12 @@ kongPlugins:
 autoscaling:
   api:
     enabled: true
+environment: "staging"
+otel:
+  enabled: true
+  endpoint: "otel-collector.observability.svc.cluster.local:4317"
+  serviceName: "pick-face-replenishment"
+  serviceVersion: "0.1.0"
 
 # Every optional COMPONENT at once (api + mcp + a2a + projector + reports +
 # frontend), so a template that renders alone but collides with another is

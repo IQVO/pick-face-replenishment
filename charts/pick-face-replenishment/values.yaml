@@ -173,6 +173,27 @@ database:
 kafka:
   brokers: ""
 
+# deployment.environment.name on every span, metric and log the service exports
+# (ENVIRONMENT, read by telemetry.Setup). Set per cluster (local / staging /
+# production).
+environment: "local"
+
+# OpenTelemetry traces + metrics, pushed over OTLP/gRPC to the Collector (ADR 0013).
+# Rendered into EVERY component that runs a Go binary (api, mcp, a2a, projector,
+# reports) as OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_SERVICE_NAME, SERVICE_VERSION and
+# ENVIRONMENT; the chart owns those names and refuses them in any extraEnv list.
+# Export is non-blocking: a Collector that is down costs telemetry and nothing
+# else. otel.enabled=false renders none of the four, and the binaries then fall
+# back to their own defaults (localhost:4317, version dev, environment local).
+otel:
+  enabled: true
+  endpoint: "otel-collector.observability.svc.cluster.local:4317"
+  # service.name of the api; every other component is "<serviceName>-<component>"
+  # (-mcp, -a2a, -projector, -reports), the same defaults the binaries carry.
+  serviceName: "pick-face-replenishment"
+  # service.version. Empty falls back to image.tag, then to the chart appVersion.
+  serviceVersion: ""
+
 # Extra env vars appended to the api container as a raw list.
 extraEnv: []
 
