@@ -25,6 +25,7 @@ func registerPackSteps(sc *godog.ScenarioContext, w *world) {
 		return w.declareDerived(sku, site, minQty, maxQty, 0, &version)
 	})
 	sc.Step(`^the policy of "([^"]*)" at site "([^"]*)" is pack-derived at version (\d+) with min (\d+) max (\d+) multiple (\d+) and is (current|stale)$`, w.derivedPolicyIs)
+	sc.Step(`^the policy of "([^"]*)" at site "([^"]*)" is pack-derived and (current|stale) with multiple (\d+)$`, w.derivedFlagIs)
 	sc.Step(`^the policy of "([^"]*)" at site "([^"]*)" is typed at version (\d+) with multiple (\d+)$`, w.typedPolicyIs)
 }
 
@@ -78,6 +79,18 @@ func (w *world) derivedPolicyIs(sku, site string, version, minQty, maxQty, multi
 	got := fmt.Sprintf("%s v%d %d-%d x%d stale=%t", p.Source, p.Version, p.MinQty, p.MaxQty, p.Multiple, p.Stale)
 	want := fmt.Sprintf("PACK_DERIVED v%d %d-%d x%d stale=%t", version, minQty, maxQty, multiple, freshness == "stale")
 	return equal("policy of "+sku, got, want)
+}
+
+// derivedFlagIs checks the source, the stale flag and the multiple only: the
+// documentation does not say which version a stale flag or a repair takes.
+func (w *world) derivedFlagIs(sku, site, freshness string, multiple int64) error {
+	rec, err := w.uc.getPolicy.Handle(w.ctx, site, sku)
+	if err != nil {
+		return err
+	}
+	p := rec.Policy
+	got := fmt.Sprintf("%s x%d stale=%t", p.Source, p.Multiple, p.Stale)
+	return equal("policy of "+sku, got, fmt.Sprintf("PACK_DERIVED x%d stale=%t", multiple, freshness == "stale"))
 }
 
 func (w *world) typedPolicyIs(sku, site string, version, multiple int64) error {

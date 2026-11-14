@@ -16,11 +16,17 @@ Feature: Life of a replenishment request (documentation-derived)
     Then the request for "SKU-1" at site "WH1" is at version 1
     And the last ReplenishmentRequested fact moves 52 units from "WH1-RSV-A07" to "WH1-FWD-A01" with priority "NORMAL" sized by policy min 10 max 60 at version 1
 
-  Scenario: The completion fact carries the units actually moved and the next version
-    When inventory relocates 30 units of "SKU-1" from "WH1-RSV-A07" to "WH1-FWD-A01" at site "WH1" with reason "REPLENISHMENT" referencing the request for "SKU-1"
+  Scenario Outline: The completion fact carries the units actually moved, even one, and the next version
+    When inventory relocates <moved> units of "SKU-1" from "WH1-RSV-A07" to "WH1-FWD-A01" at site "WH1" with reason "REPLENISHMENT" referencing the request for "SKU-1"
     Then the consumer outcome is "applied"
     And the request for "SKU-1" at site "WH1" is at version 2
-    And the last ReplenishmentCompleted fact reports 30 units moved from "WH1-RSV-A07" to "WH1-FWD-A01" at version 2
+    And the request for "SKU-1" at site "WH1" was completed with <moved> units moved
+    And the last ReplenishmentCompleted fact reports <moved> units moved from "WH1-RSV-A07" to "WH1-FWD-A01" at version 2
+
+    Examples:
+      | moved |
+      | 30    |
+      | 1     |
 
   Scenario: A cancellation is announced with its reason and takes the request to version 2
     When I cancel the request for "SKU-1" at site "WH1"
@@ -63,11 +69,6 @@ Feature: Life of a replenishment request (documentation-derived)
     When inventory relocates 0 units of "SKU-1" from "WH1-RSV-A07" to "WH1-FWD-A01" at site "WH1" with reason "REPLENISHMENT" referencing "plan-0001"
     Then the consumer outcome is "ignored"
     And the request for "SKU-1" at site "WH1" is "Requested"
-
-  Scenario: A relocation of a single unit completes the request with one unit moved
-    When inventory relocates 1 units of "SKU-1" from "WH1-RSV-A07" to "WH1-FWD-A01" at site "WH1" with reason "REPLENISHMENT" referencing the request for "SKU-1"
-    Then the consumer outcome is "applied"
-    And the request for "SKU-1" at site "WH1" was completed with 1 units moved
 
   # ---- the shape of a request id -----------------------------------------
 

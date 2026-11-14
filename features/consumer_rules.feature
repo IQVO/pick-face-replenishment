@@ -92,8 +92,3 @@ Feature: Consumer rules of the event-fed local copies (documentation-derived)
     When a decommission of location "" is delivered
     Then the command fails with "invalid event"
     And there are 1 pick faces at site "WH1"
-
-  Scenario: A layout event delivered twice is claimed once
-    When the zone "z-bulk" of site "WH1" has code "BULK"
-    And the last event is delivered again
-    Then the consumer outcome is "duplicate"

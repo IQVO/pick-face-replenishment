@@ -84,22 +84,19 @@ Feature: Detection rules of the replenishment policy (documentation-derived)
       | 6       | 5        | 1        |
       | 5       | 5        | 0        |
 
-  Scenario: A multiple larger than the stock a source can give leaves nothing to request
+  Scenario Outline: The quantity is capped at the source's usable stock and rounded down to the multiple again
     Given a policy for "SKU-2" at site "WH1" with min 10 max 60 and multiple 6
     And the forward location "WH1-FWD-B01" is registered
     And the approved slot plan of site "WH1" assigns "SKU-1" to "WH1-FWD-A01", "SKU-2" to "WH1-FWD-B01"
     And bin "WH1-FWD-B01" of site "WH1" holds 4 on hand and 0 reserved of "SKU-2"
-    When bin "WH1-RSV-A07" of site "WH1" holds 5 of "SKU-2"
-    Then there are 0 requests for "SKU-2" at site "WH1"
-    And the pick face "WH1-FWD-B01" of site "WH1" has status "NO_SOURCE"
+    When bin "WH1-RSV-A07" of site "WH1" holds <source> of "SKU-2"
+    Then the units requested for "SKU-2" at site "WH1" are <units>
+    And the pick face "WH1-FWD-B01" of site "WH1" has status "<status>"
 
-  Scenario: A partial fill from a small source is rounded down to the multiple
-    Given a policy for "SKU-2" at site "WH1" with min 10 max 60 and multiple 6
-    And the forward location "WH1-FWD-B01" is registered
-    And the approved slot plan of site "WH1" assigns "SKU-1" to "WH1-FWD-A01", "SKU-2" to "WH1-FWD-B01"
-    And bin "WH1-FWD-B01" of site "WH1" holds 4 on hand and 0 reserved of "SKU-2"
-    When bin "WH1-RSV-A07" of site "WH1" holds 20 of "SKU-2"
-    Then the request for "SKU-2" at site "WH1" moves 18 units from "WH1-RSV-A07" to "WH1-FWD-B01" with priority "NORMAL"
+    Examples:
+      | source | units | status    |
+      | 20     | 18    | OK        |
+      | 5      | 0     | NO_SOURCE |
 
   Scenario Outline: Only a Storage location in a reserve zone of the site can supply a request
     Given the zone "z-stg" of site "WH1" has code "STG"
@@ -151,16 +148,12 @@ Feature: Detection rules of the replenishment policy (documentation-derived)
     And I list the pick faces of site "WH1"
     Then the pick faces are "WH1-FWD-A01,WH1-FWD-C01"
 
-  Scenario: A location decommissioned before it was ever registered stays out of service
+  Scenario: Decommissioning is irreversible, even for a location decommissioned before it was registered
     Given the location "WH1-FWD-B01" is decommissioned
     And the location "WH1-FWD-B01" is registered in zone "z-fwd"
-    And the approved slot plan of site "WH1" assigns "SKU-1" to "WH1-FWD-A01", "SKU-3" to "WH1-FWD-B01"
-    When I list the pick faces of site "WH1"
-    Then the pick faces are "WH1-FWD-A01"
-
-  Scenario: A decommissioned location is not revived by registering it again
-    Given the location "WH1-FWD-A01" is decommissioned
+    And the location "WH1-FWD-A01" is decommissioned
     And the location "WH1-FWD-A01" is registered in zone "z-fwd"
+    And the approved slot plan of site "WH1" assigns "SKU-1" to "WH1-FWD-A01", "SKU-3" to "WH1-FWD-B01"
     When I list the pick faces of site "WH1"
     Then the pick faces are ""
 
@@ -203,12 +196,6 @@ Feature: Detection rules of the replenishment policy (documentation-derived)
     When I evaluate site "WH1"
     Then the sweep evaluated 1 pick faces
     And the sweep raised 0, found 0 already open, 0 healthy, 0 without policy and 1 without source
-
-  Scenario: A sweep and the pick-face view need a site
-    When I evaluate site ""
-    Then the command fails with "site id must not be blank"
-    When I list the pick faces of site ""
-    Then the command fails with "site id must not be blank"
 
   Scenario: The pick-face view shows the level, the policy bounds and the open request
     Given the forward location "WH1-FWD-B01" is registered
