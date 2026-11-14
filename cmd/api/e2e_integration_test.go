@@ -76,6 +76,11 @@ func (e env) apply(t *testing.T) {
 	t.Setenv("SHUTDOWN_DRAIN_DELAY", "0")
 	t.Setenv("OUTBOX_RELAY_INTERVAL", "100ms")
 	t.Setenv("LOG_LEVEL", "warn")
+	// No Collector in the test run: keep the exporters off so shutdown does not
+	// wait on a final flush.
+	t.Setenv("OTEL_SDK_DISABLED", "true")
+	t.Setenv("OTEL_TRACES_EXPORTER", "none")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
 	for _, name := range []string{"INVENTORY", "SLOTTING", "LAYOUT", "PACK_LEVEL"} {
 		t.Setenv(name+"_MODE", "")
 		t.Setenv(name+"_CONSUMER_GROUP", name+"-"+e.tag)

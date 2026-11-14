@@ -117,6 +117,11 @@ func TestReportsAnswerFromTheSeedAndDrainOnSigterm(t *testing.T) {
 	t.Setenv("ANALYTICS_DATABASE_URL", url)
 	t.Setenv("HTTP_ADDR", addr)
 	t.Setenv("LOG_LEVEL", "error")
+	// No Collector in the test run: keep the exporters off so shutdown does not
+	// wait on a final flush.
+	t.Setenv("OTEL_SDK_DISABLED", "true")
+	t.Setenv("OTEL_TRACES_EXPORTER", "none")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
 	done := make(chan error, 1)
 	go func() { done <- run() }()
 

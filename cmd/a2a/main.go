@@ -48,6 +48,7 @@ import (
 
 	inbounda2a "github.com/claudioed/pick-face-replenishment/internal/adapters/inbound/a2a"
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/postgres"
+	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/telemetry"
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 	"github.com/claudioed/pick-face-replenishment/internal/bootretry"
 )
@@ -118,6 +119,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	flushTelemetry, err := startTelemetry(logger, loadTelemetryEnv(os.Getenv))
+	if err != nil {
+		return err
+	}
+	// Deferred FIRST so it runs LAST: the final export happens after the
+	// server and the workers have stopped.
+	defer flushTelemetry()
 	deps, closeAdapters, err := buildDeps(context.Background(), logger, cfg.databaseURL, cfg.migrationsURL, zoneConfigFromEnv())
 	if err != nil {
 		return err
@@ -238,7 +247,7 @@ func newLogger(level string) *slog.Logger {
 	default:
 		lvl = slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+	return slog.New(telemetry.WithTraceContext(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
 }
 
 func getenv(key, fallback string) string {

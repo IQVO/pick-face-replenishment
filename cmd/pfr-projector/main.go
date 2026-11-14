@@ -41,6 +41,7 @@ import (
 	inboundkafka "github.com/claudioed/pick-face-replenishment/internal/adapters/inbound/kafka"
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/analyticsstore"
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/events"
+	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/telemetry"
 	"github.com/claudioed/pick-face-replenishment/internal/bootretry"
 )
 
@@ -113,6 +114,14 @@ func run() error {
 	}
 	logger := newLogger(cfg.logLevel)
 	slog.SetDefault(logger)
+
+	flushTelemetry, err := startTelemetry(logger, loadTelemetryEnv(os.Getenv))
+	if err != nil {
+		return err
+	}
+	// Deferred FIRST so it runs LAST: the final export happens after the
+	// server and the workers have stopped.
+	defer flushTelemetry()
 
 	pool, err := openAnalyticsPool(context.Background(), logger, cfg.analyticsURL)
 	if err != nil {
@@ -243,5 +252,5 @@ func newLogger(level string) *slog.Logger {
 	default:
 		lvl = slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+	return slog.New(telemetry.WithTraceContext(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
 }
