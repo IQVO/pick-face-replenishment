@@ -81,7 +81,7 @@ func TestA2AAgainstPostgresReadsWhatTheAPIWroteAndNeverWrites(t *testing.T) {
 		t.Fatalf("buildDeps: %v", err)
 	}
 	t.Cleanup(closeFn)
-	srv := httptest.NewServer(newRouter(inbounda2a.Handler(inbounda2a.NewExecutor(deps)), inbounda2a.Card(inbounda2a.Config{AgentURL: testAgentURL, Version: "test"})))
+	srv := httptest.NewServer(newRouter(inbounda2a.Handler(inbounda2a.NewExecutor(deps)), inbounda2a.Card(inbounda2a.Config{AgentURL: testAgentURL, Version: "test"}), "test"))
 	t.Cleanup(srv.Close)
 	client, err := a2aclient.NewFromCard(ctx, inbounda2a.Card(inbounda2a.Config{AgentURL: srv.URL + "/a2a", Version: "test"}))
 	if err != nil {

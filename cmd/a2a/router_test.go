@@ -19,7 +19,7 @@ const testAgentURL = "http://pick-face-replenishment-a2a.warehouse-systems.svc.c
 func newTestRouter(t *testing.T) http.Handler {
 	t.Helper()
 	card := inbounda2a.Card(inbounda2a.Config{AgentURL: testAgentURL, Version: "test"})
-	return newRouter(inbounda2a.Handler(inbounda2a.NewExecutor(inbounda2a.Deps{})), card)
+	return newRouter(inbounda2a.Handler(inbounda2a.NewExecutor(inbounda2a.Deps{})), card, "test")
 }
 
 func TestRouterHealthzIsOpenAndServesOK(t *testing.T) {

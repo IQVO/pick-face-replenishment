@@ -120,7 +120,8 @@ func run() error {
 		return err
 	}
 
-	flushTelemetry, err := startTelemetry(logger, loadTelemetryEnv(os.Getenv))
+	telemetryCfg := loadTelemetryEnv(os.Getenv)
+	flushTelemetry, err := startTelemetry(logger, telemetryCfg)
 	if err != nil {
 		return err
 	}
@@ -136,7 +137,7 @@ func run() error {
 	card := inbounda2a.Card(inbounda2a.Config{AgentURL: cfg.agentURL, Version: cardVersion})
 	srv := &http.Server{
 		Addr:              getenv("A2A_ADDR", ":8093"),
-		Handler:           newRouter(inbounda2a.Handler(inbounda2a.NewExecutor(deps)), card),
+		Handler:           newRouter(inbounda2a.Handler(inbounda2a.NewExecutor(deps)), card, telemetryCfg.serviceName),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return serveA2A(logger, srv)
