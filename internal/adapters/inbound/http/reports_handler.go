@@ -19,6 +19,11 @@ type ReportsServer struct {
 	// Now is the clock the default range ends at and the freshness lag is
 	// measured against (time.Now when nil).
 	Now func() time.Time
+	// Logger receives the request log (slog.Default when nil).
+	Logger *slog.Logger
+	// ServiceName names the server spans and the HTTP metrics; empty means
+	// DefaultReportsServiceName.
+	ServiceName string
 }
 
 const dayLayout = "2006-01-02"
@@ -62,10 +67,11 @@ var (
 
 // NewReportsRouter builds the router of cmd/pfr-reports: /healthz,
 // GET /reports/replenishment-funnel and GET /reports/freshness. No auth
-// middleware (fleet rule), no CORS: the service is cluster-internal.
+// middleware (fleet rule), no CORS: the service is cluster-internal. Its
+// middleware is the same fleet observability standard as NewRouter's.
 func NewReportsRouter(s *ReportsServer) http.Handler {
 	r := chi.NewRouter()
-	r.Use(recoverPanic)
+	useObservability(r, orDefault(s.ServiceName, DefaultReportsServiceName), s.Logger)
 	r.Get("/healthz", handleHealthz)
 	r.Get("/reports/replenishment-funnel", s.handleReplenishmentFunnel)
 	r.Get("/reports/freshness", s.handleFreshness)
