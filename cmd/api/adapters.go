@@ -32,6 +32,8 @@ type adapters struct {
 	uow        ports.UnitOfWork
 	clock      ports.Clock
 	ids        ports.IDGenerator
+	// metrics counts the attempts to raise a request (nil: not instrumented).
+	metrics ports.ReplenishmentMetrics
 	// processed is the consumers' processed-event claim table.
 	processed ports.ProcessedEvents
 
@@ -72,7 +74,9 @@ func buildAdapters(ctx context.Context, databaseURL, migrationsURL string, logge
 		return adapters{}, noop, err
 	}
 	logger.Info("postgres adapters configured")
-	return postgresAdapters(pool), pool.Close, nil
+	ad := postgresAdapters(pool)
+	ad.metrics = replenishmentMetrics(logger)
+	return ad, pool.Close, nil
 }
 
 func postgresAdapters(pool *pgxpool.Pool) adapters {
@@ -95,7 +99,7 @@ func postgresAdapters(pool *pgxpool.Pool) adapters {
 func (a adapters) evaluator(zones usecases.ZoneConfig) usecases.Evaluator {
 	return usecases.Evaluator{
 		Policies: a.policies, Requests: a.requests, Read: a.read, Events: a.events,
-		Clock: a.clock, IDs: a.ids, Zones: zones,
+		Clock: a.clock, IDs: a.ids, Zones: zones, Metrics: a.metrics,
 	}
 }
 

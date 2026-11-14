@@ -178,15 +178,19 @@ HTTP_ADDR=:18080 DATABASE_URL='postgres://...' KAFKA_BROKERS=broker:9092 \
 | `RESERVE_ZONE_CODES` | `RSV` | Comma-separated zone codes of reserve bins |
 | `SHUTDOWN_DRAIN_DELAY` | `5s` | Wait after flipping `/readyz` before closing |
 | `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | Collector OTLP/gRPC endpoint (`host:port` or URL); every binary |
+| `OTEL_SERVICE_NAME` | `pick-face-replenishment` | `service.name` of the spans and metrics (other binaries: `-mcp`, `-a2a`, `-projector`, `-reports`) |
+| `SERVICE_VERSION` | `dev` | `service.version` |
+| `ENVIRONMENT` | `local` | `deployment.environment.name` |
 
 The other binaries:
 
 | Binary | Env vars |
 |---|---|
-| `cmd/mcp` | `MCP_ADDR` (`:8090`), `DATABASE_URL` (**required**), `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES`, `LOG_LEVEL` |
-| `cmd/a2a` | `A2A_ADDR` (`:8093`), `A2A_AGENT_URL` (**required**, absolute URL advertised on the Agent Card), `DATABASE_URL` (**required**), `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES`, `LOG_LEVEL` |
-| `cmd/pfr-projector` | `ANALYTICS_DATABASE_URL` (**required**), `KAFKA_BROKERS` (**required**), `ANALYTICS_CONSUMER_GROUP`, `ADMIN_ADDR` (`:8091`), `LOG_LEVEL` |
-| `cmd/pfr-reports` | `ANALYTICS_DATABASE_URL` (**required**), `HTTP_ADDR` (`:8092`), `LOG_LEVEL` |
+| `cmd/mcp` | `MCP_ADDR` (`:8090`), `DATABASE_URL` (**required**), `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES`, `LOG_LEVEL`, and the four OpenTelemetry variables above |
+| `cmd/a2a` | `A2A_ADDR` (`:8093`), `A2A_AGENT_URL` (**required**, absolute URL advertised on the Agent Card), `DATABASE_URL` (**required**), `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES`, `LOG_LEVEL`, and the four OpenTelemetry variables above |
+| `cmd/pfr-projector` | `ANALYTICS_DATABASE_URL` (**required**), `KAFKA_BROKERS` (**required**), `ANALYTICS_CONSUMER_GROUP`, `ADMIN_ADDR` (`:8091`), `LOG_LEVEL`, and the four OpenTelemetry variables above |
+| `cmd/pfr-reports` | `ANALYTICS_DATABASE_URL` (**required**), `HTTP_ADDR` (`:8092`), `LOG_LEVEL`, and the four OpenTelemetry variables above |
 
 Every variable is on [Configuration](docs/docs/operations/configuration.md);
 the first calls are in the [Quickstart](docs/docs/overview/quickstart.md).
@@ -195,22 +199,26 @@ the first calls are in the [Quickstart](docs/docs/overview/quickstart.md).
 
 ## Observability
 
-The service today has **structured logs and two health endpoints, and
-nothing else** (see [Observability](docs/docs/operations/observability.md),
-which proves the absence): no `/metrics` endpoint, no OpenTelemetry SDK, no
-OTLP exporter and no tracing setup — the router registers only `/healthz`,
-`/readyz` and the API operations. What exists:
+The service exports **metrics and traces over OTLP/gRPC** to the OpenTelemetry Collector and writes
+**trace-correlated JSON logs** (fleet observability standard,
+[ADR 0013](docs/adr/0013-adopt-the-fleet-observability-standard.md); details and metric names on
+[Observability](docs/docs/operations/observability.md)). What exists:
 
-- **Logs**: JSON (`log/slog`) on stdout with `time`, `level`, `msg` and
-  structured fields; level from `LOG_LEVEL` (default `info`).
-- **Health**: `/healthz` (liveness) and `/readyz` (the drain gate AND a
-  Postgres ping AND a Kafka metadata check, cached for a few seconds).
-- **Trace-context helper**: the outbox injects the W3C `traceparent` of the
-  writing request into the row's headers so a relay copy carries it onto the
-  Kafka message (no tracer provider is installed today).
+- **Metrics**: `http.server.request.duration` (`cmd/api`, `cmd/pfr-reports`, `cmd/mcp`, `cmd/a2a`), the Go runtime
+  instruments (all five binaries) and one business counter, `replenishment.request.raised{outcome,reason}`
+  (`cmd/api`). There is no `/metrics` endpoint: the Collector re-publishes the metrics.
+- **Traces**: one server span per request, named after the route pattern; the outbox stores the `traceparent` of an
+  API-originated write in the row's headers, so the relay copy carries it onto the Kafka message.
+- **Logs**: JSON (`log/slog`) on stdout with `time`, `level`, `msg` and structured fields, plus `trace_id` and `span_id`
+  when written with a span context; one `http request` record per request on the REST and reports routers;
+  level from `LOG_LEVEL` (default `info`).
+- **Health**: `/healthz` (liveness) and `/readyz` (the drain gate AND a Postgres ping AND a Kafka metadata check,
+  cached for a few seconds).
+- **Configuration**: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `SERVICE_VERSION`, `ENVIRONMENT` (chart:
+  `otel.*` and `environment`).
 - `warehouse-infra` ships a Grafana dashboard
-  (`terraform/dashboards/contexts/pick-face-replenishment.json`) and
-  Kong-based alert rules (5xx ratio, availability) for this context.
+  (`terraform/dashboards/contexts/pick-face-replenishment.json`) and Kong-based alert rules (5xx ratio, availability)
+  for this context.
 
 ---
 

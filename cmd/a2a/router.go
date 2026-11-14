@@ -6,6 +6,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-chi/chi/v5"
+	"github.com/riandyrn/otelchi"
+	otelchimetric "github.com/riandyrn/otelchi/metric"
 )
 
 // newRouter wraps the A2A handler in a small chi router so the binary is
@@ -18,9 +20,14 @@ import (
 //     Kong's /api/a2a/<context> prefix rewrites to) and "/a2a" (the fleet's
 //     <CTX>_A2A_ENDPOINT convention, mirroring cmd/mcp's dual "/mcp" mount).
 //
-// No auth middleware is ever added here (TestNoAuthMiddlewareReintroduced).
-func newRouter(a2aHandler http.Handler, card *a2a.AgentCard) http.Handler {
+// Every request is traced (otelchi) and its duration recorded (otelchimetric:
+// http.server.request.duration) in the order the fleet observability standard
+// fixes (ADR 0013); telemetry.Setup must have run before this call. No auth
+// middleware is ever added here (TestNoAuthMiddlewareReintroduced).
+func newRouter(a2aHandler http.Handler, card *a2a.AgentCard, serviceName string) http.Handler {
 	r := chi.NewRouter()
+	r.Use(otelchi.Middleware(serviceName, otelchi.WithChiRoutes(r)))
+	r.Use(otelchimetric.NewServerRequestDuration(otelchimetric.NewBaseConfig(serviceName)))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

@@ -39,6 +39,7 @@ import (
 
 	inboundmcp "github.com/claudioed/pick-face-replenishment/internal/adapters/inbound/mcp"
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/postgres"
+	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/telemetry"
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 	"github.com/claudioed/pick-face-replenishment/internal/bootretry"
 )
@@ -60,6 +61,15 @@ func run() error {
 	logger := newLogger(getenv("LOG_LEVEL", "info"))
 	slog.SetDefault(logger)
 
+	telemetryCfg := loadTelemetryEnv(os.Getenv)
+	flushTelemetry, err := startTelemetry(logger, telemetryCfg)
+	if err != nil {
+		return err
+	}
+	// Deferred FIRST so it runs LAST: the final export happens after the
+	// server and the workers have stopped.
+	defer flushTelemetry()
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	deps, closeAdapters, err := buildDeps(context.Background(), logger, databaseURL,
 		getenv(postgres.EnvMigrationsDatabaseURL, databaseURL), zoneConfigFromEnv())
@@ -70,7 +80,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              getenv("MCP_ADDR", ":8090"),
-		Handler:           newRouter(inboundmcp.Handler(inboundmcp.NewServer(deps))),
+		Handler:           newRouter(inboundmcp.Handler(inboundmcp.NewServer(deps)), telemetryCfg.serviceName),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return serveMCP(logger, srv)
@@ -183,7 +193,7 @@ func newLogger(level string) *slog.Logger {
 	default:
 		lvl = slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+	return slog.New(telemetry.WithTraceContext(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
 }
 
 func getenv(key, fallback string) string {

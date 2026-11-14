@@ -10,6 +10,7 @@ import (
 	"time"
 
 	outboxrelay "github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/outbox"
+	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/telemetry"
 	"github.com/claudioed/pick-face-replenishment/internal/application/usecases"
 )
 
@@ -34,7 +35,7 @@ func newLogger(level string) *slog.Logger {
 	default:
 		lvl = slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+	return slog.New(telemetry.WithTraceContext(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
 }
 
 // parseZoneCodes reads a comma-separated list of zone codes; an empty list is

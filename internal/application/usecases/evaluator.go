@@ -27,6 +27,9 @@ type Evaluator struct {
 	Zones    ZoneConfig
 	// Source picks the reserve bin; nil means fullest-reserve-bin-v1.
 	Source detection.SourceBinPolicy
+	// Metrics counts the attempts to raise a request; nil means not
+	// instrumented.
+	Metrics ports.ReplenishmentMetrics
 }
 
 // Assessment is the read-only result of running the detector on one pick face.
@@ -216,8 +219,16 @@ type planSpec struct {
 	priority replenishment.Priority
 }
 
-// plan creates the request, stores it and hands its facts to the outbox.
+// plan creates the request, stores it and hands its facts to the outbox. It is
+// the one place every raise passes through (sweep, consumers, manual), so it
+// is where each attempt is counted.
 func (e Evaluator) plan(ctx context.Context, a Assessment, s planSpec) (*replenishment.Request, error) {
+	req, err := e.planAndStore(ctx, a, s)
+	e.recordRaised(ctx, err)
+	return req, err
+}
+
+func (e Evaluator) planAndStore(ctx context.Context, a Assessment, s planSpec) (*replenishment.Request, error) {
 	req, err := replenishment.Plan(replenishment.PlanInput{
 		RequestID:  e.IDs.NewRequestID(),
 		SiteID:     a.SiteID,
