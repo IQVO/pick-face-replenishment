@@ -157,7 +157,9 @@ func (w *world) policyExists(sku, site, verdict string) error {
 }
 
 func registerSweepAndRequestSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^the sweep evaluated (\d+) pick faces$`, func(want int) error { return equal("evaluated faces", fmt.Sprint(w.summary.Evaluated), fmt.Sprint(want)) })
+	sc.Step(`^the sweep evaluated (\d+) pick faces$`, func(want int) error {
+		return equal("evaluated faces", fmt.Sprint(w.summary.Evaluated), fmt.Sprint(want))
+	})
 	sc.Step(`^the sweep raised the requests "([^"]*)"$`, func(want string) error {
 		return equal("sweep request ids", strings.Join(w.summary.RequestIDs, ","), strings.Join(splitList(want), ","))
 	})
@@ -217,7 +219,7 @@ func registerFactSteps(sc *godog.ScenarioContext, w *world) {
 	})
 }
 
-// lastFact returns the newest published request fact for which pick says yes.
+// lastFact returns the newest published request fact of type T.
 func lastFact[T replenishment.Event](w *world) (T, bool) {
 	events := w.log.RequestEvents()
 	for _, e := range slices.Backward(events) {
