@@ -6,6 +6,7 @@
 package http
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -33,13 +34,20 @@ type Server struct {
 	Idempotency func(http.Handler) http.Handler
 	// Readiness backs GET /readyz; nil means always ready.
 	Readiness *Readiness
+	// Logger receives the request log (slog.Default when nil).
+	Logger *slog.Logger
+	// ServiceName names the server spans and the HTTP metrics; empty means
+	// DefaultServiceName.
+	ServiceName string
 }
 
 // NewRouter builds the chi router for every endpoint of apis/openapi.yaml
-// (.claude/rules/rest-api.md).
+// (.claude/rules/rest-api.md). Its middleware is the fleet observability
+// standard (useObservability, ADR 0013); telemetry.Setup must have run before
+// this call.
 func NewRouter(s *Server) http.Handler {
 	r := chi.NewRouter()
-	r.Use(recoverPanic)
+	useObservability(r, orDefault(s.ServiceName, DefaultServiceName), s.Logger)
 
 	r.Get("/healthz", handleHealthz)
 	r.Get("/readyz", s.handleReadyz)
