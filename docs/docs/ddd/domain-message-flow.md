@@ -10,7 +10,7 @@ sidebar_position: 15
 The key business scenarios as numbered command, event and query flows, following ddd-crew
 [Domain Message Flow Modelling](https://github.com/ddd-crew/domain-message-flow-modelling). Edges that exist on `develop`
 are solid arrows; a dashed arrow marks a step whose producer or consumer is not built. Built does not mean deployed:
-`warehouse-infra` runs the API and its consumers but not this service's MCP server, analytics pair or web remote.
+`warehouse-infra` helm values enable this service's API and consumers, MCP server, analytics pair and web remote (`helm-values/pick-face-replenishment.yaml`); cluster state was not checked.
 
 ## 1. Keep the local copies current
 

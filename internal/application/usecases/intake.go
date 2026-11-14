@@ -8,8 +8,9 @@ import (
 	"github.com/claudioed/pick-face-replenishment/internal/application/ports"
 )
 
-// Consumer names namespace the claims of the three consumers in
-// ports.ProcessedEvents. They are not Kafka consumer group ids.
+// Consumer names namespace the claims of the inventory, slotting and layout
+// consumers in ports.ProcessedEvents (the product-master consumer's is
+// ProductMasterConsumer, in pack_level.go). They are not Kafka consumer group ids.
 const (
 	InventoryConsumer = "pick-face-replenishment-inventory"
 	SlottingConsumer  = "pick-face-replenishment-slotting"
