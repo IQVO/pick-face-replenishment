@@ -53,11 +53,11 @@ analytics topic is read only by this repository's `cmd/pfr-projector` (ADR 0008)
 | `com.warehouse.wms.facility-layout.zone.ZoneRegistered` | `warehouse.facility.events` | `zoneId` | `zoneId`, `siteCode`, `zoneCode` | layout consumer, `ApplyZone` |
 | `com.warehouse.wms.facility-layout.locationslot.LocationSlotRegistered` | `warehouse.facility.events` | `locationCode` | `locationCode`, `zoneId`, `role` | layout consumer, `ApplyLocationRegistered` |
 | `com.warehouse.wms.facility-layout.locationslot.LocationSlotDecommissioned` | `warehouse.facility.events` | `locationCode` | `locationCode` | layout consumer, `ApplyLocationDecommissioned` |
-| `com.warehouse.wms.product-master.product.ProductPackLevelDeclared` | `warehouse.product-master.events` | SKU | `sku`, `level`, `gtin`, `unitsPerPack`, `effectiveFrom`, `version` | product-master consumer, `ApplyPackLevelDeclared` |
-| `com.warehouse.wms.product-master.product.ProductPackLevelRetired` | `warehouse.product-master.events` | SKU | `sku`, `level`, `gtin`, `effectiveTo`, `version` | product-master consumer, `ApplyPackLevelRetired` |
+| `com.warehouse.wms.product-master.product.ProductPackLevelDeclared` | `warehouse.product-master.events` | SKU | `sku`, `level`, `gtin`, `units_per_pack`, `effective_from`, `version` | product-master consumer, `ApplyPackLevelDeclared` |
+| `com.warehouse.wms.product-master.product.ProductPackLevelRetired` | `warehouse.product-master.events` | SKU | `sku`, `level`, `gtin`, `effective_to`, `version` | product-master consumer, `ApplyPackLevelRetired` |
 
 Eight types are consumed, from four topics (`apis/asyncapi.yaml`). The payloads of consumed events are restated here from the producers' contracts, never imported; fields not listed are
-ignored. For the two pack-level types the key names in the table are the ones this service decodes (`internal/adapters/inbound/kafka/productmaster_consumer.go`); product-master's encoder writes `units_per_pack`, `effective_from` and `effective_to` in snake_case (product-master `internal/adapters/outbound/kafka/encoder.go`), see the note on the message in `apis/asyncapi.yaml`. Producer status of each type is on [Integration](/docs/ecosystem/integration#upstream-and-downstream-edges).
+ignored. For the two pack-level types the key names in the table are the snake_case keys product-master's encoder writes and this service decodes (`internal/adapters/inbound/kafka/productmaster_consumer.go`). Producer status of each type is on [Integration](/docs/ecosystem/integration#upstream-and-downstream-edges).
 
 ## Example: ReplenishmentRequested
 

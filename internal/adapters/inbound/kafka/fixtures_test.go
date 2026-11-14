@@ -84,12 +84,12 @@ func productMasterMsg(id, typ, data string) []byte {
 }
 
 func packDeclaredMsg(id, level, gtin string, unitsPerPack, version int) []byte {
-	data := `{"sku":"SKU-1","level":"` + level + `","gtin":"` + gtin + `","childGtin":"00012345678905","qtyOfChild":` + strconv.Itoa(unitsPerPack) +
-		`,"unitsPerPack":` + strconv.Itoa(unitsPerPack) + `,"isOrderable":true,"isDespatchUnit":true,"effectiveFrom":"2026-09-01T00:00:00Z","version":` + strconv.Itoa(version) + `}`
+	data := `{"sku":"SKU-1","level":"` + level + `","gtin":"` + gtin + `","child_gtin":"00012345678905","qty_of_child":` + strconv.Itoa(unitsPerPack) +
+		`,"units_per_pack":` + strconv.Itoa(unitsPerPack) + `,"is_orderable":true,"is_despatch_unit":true,"effective_from":"2026-09-01T00:00:00Z","version":` + strconv.Itoa(version) + `}`
 	return productMasterMsg(id, typePackDeclared, data)
 }
 
 func packRetiredMsg(id, level, gtin string, version int) []byte {
-	data := `{"sku":"SKU-1","level":"` + level + `","gtin":"` + gtin + `","effectiveTo":"2026-10-01T00:00:00Z","reason":"superseded","version":` + strconv.Itoa(version) + `}`
+	data := `{"sku":"SKU-1","level":"` + level + `","gtin":"` + gtin + `","effective_to":"2026-10-01T00:00:00Z","reason":"superseded","version":` + strconv.Itoa(version) + `}`
 	return productMasterMsg(id, typePackRetired, data)
 }
