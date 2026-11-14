@@ -26,6 +26,8 @@ func registerPackSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the policy of "([^"]*)" at site "([^"]*)" is pack-derived at version (\d+) with min (\d+) max (\d+) multiple (\d+) and is (current|stale)$`, w.derivedPolicyIs)
 	sc.Step(`^the policy of "([^"]*)" at site "([^"]*)" is pack-derived and (current|stale) with multiple (\d+)$`, w.derivedFlagIs)
+	sc.Step(`^I note the version of the policy of "([^"]*)" at site "([^"]*)"$`, w.noteVersion)
+	sc.Step(`^the policy of "([^"]*)" at site "([^"]*)" is still at the noted version$`, w.versionUnchanged)
 	sc.Step(`^the policy of "([^"]*)" at site "([^"]*)" is typed at version (\d+) with multiple (\d+)$`, w.typedPolicyIs)
 }
 
@@ -101,4 +103,21 @@ func (w *world) typedPolicyIs(sku, site string, version, multiple int64) error {
 	p := rec.Policy
 	got := fmt.Sprintf("%s v%d x%d stale=%t", p.Source, p.Version, p.Multiple, p.Stale)
 	return equal("policy of "+sku, got, fmt.Sprintf("DECLARED v%d x%d stale=false", version, multiple))
+}
+
+func (w *world) noteVersion(sku, site string) error {
+	rec, err := w.uc.getPolicy.Handle(w.ctx, site, sku)
+	if err != nil {
+		return err
+	}
+	w.notedVersion = rec.Policy.Version
+	return nil
+}
+
+func (w *world) versionUnchanged(sku, site string) error {
+	rec, err := w.uc.getPolicy.Handle(w.ctx, site, sku)
+	if err != nil {
+		return err
+	}
+	return equal("policy version", fmt.Sprint(rec.Policy.Version), fmt.Sprint(w.notedVersion))
 }

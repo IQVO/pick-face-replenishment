@@ -135,6 +135,8 @@ type world struct {
 	faces       usecases.PickFacePage
 	faceQuery   usecases.PickFaceQuery
 	nextCursor  string
+
+	notedVersion int64
 }
 
 func (w *world) start() {

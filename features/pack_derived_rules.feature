@@ -96,12 +96,26 @@ Feature: Pack-derived replenishment multiple (ADR 0009)
     Then the consumer outcome is "applied"
     And the policy of "SKU-1" at site "WH1" is pack-derived and stale with multiple 12
 
-  Scenario: A new CASE level repairs a stale pack-derived policy
+  Scenario Outline: A new CASE level repairs a stale pack-derived policy, whatever its units per pack
     Given product-master declares the CASE pack level of "SKU-1" as gtin "14006381333938" with 12 units per pack effective "2026-10-01T00:00:00Z" at version 1
     And I declare a pack-derived policy for "SKU-1" at site "WH1" with min 10 max 100
     And product-master retires the CASE pack level of "SKU-1" with gtin "14006381333938" effective to "2026-10-10T00:00:00Z" at version 2
-    When product-master declares the CASE pack level of "SKU-1" as gtin "24006381333935" with 24 units per pack effective "2026-10-17T09:00:00Z" at version 3
-    Then the policy of "SKU-1" at site "WH1" is pack-derived and current with multiple 24
+    When product-master declares the CASE pack level of "SKU-1" as gtin "24006381333935" with <units> units per pack effective "2026-10-17T09:00:00Z" at version 3
+    Then the policy of "SKU-1" at site "WH1" is pack-derived and current with multiple <units>
+
+    Examples:
+      | units |
+      | 24    |
+      | 12    |
+
+  Scenario: A repeated retirement of the level that already left a policy stale does not change the policy again
+    Given product-master declares the CASE pack level of "SKU-1" as gtin "14006381333938" with 12 units per pack effective "2026-10-01T00:00:00Z" at version 1
+    And I declare a pack-derived policy for "SKU-1" at site "WH1" with min 10 max 100
+    And product-master retires the CASE pack level of "SKU-1" with gtin "14006381333938" effective to "2026-10-10T00:00:00Z" at version 2
+    And I note the version of the policy of "SKU-1" at site "WH1"
+    When product-master retires the CASE pack level of "SKU-1" with gtin "14006381333938" effective to "2026-10-11T00:00:00Z" at version 3
+    Then the policy of "SKU-1" at site "WH1" is still at the noted version
+    And the policy of "SKU-1" at site "WH1" is pack-derived and stale with multiple 12
 
   Scenario: A late retirement of a superseded GTIN does not end the CASE level that replaced it
     Given product-master declares the CASE pack level of "SKU-1" as gtin "14006381333938" with 12 units per pack effective "2026-10-01T00:00:00Z" at version 1

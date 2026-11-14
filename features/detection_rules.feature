@@ -100,6 +100,7 @@ Feature: Detection rules of the replenishment policy (documentation-derived)
 
   Scenario Outline: Only a Storage location in a reserve zone of the site can supply a request
     Given the zone "z-stg" of site "WH1" has code "STG"
+    And the zone "z-rsv-wh2" of site "WH2" has code "RSV"
     And bin "WH1-FWD-A01" of site "WH1" holds 8 on hand and 0 reserved of "SKU-1"
     When a candidate bin "WH1-CAND-01" at site "WH1" in zone "<zone>" with role "<role>" holds 100 of "SKU-1"
     Then there are <requests> requests for "SKU-1" at site "WH1"
@@ -112,6 +113,7 @@ Feature: Detection rules of the replenishment policy (documentation-derived)
       | z-rsv   | Staging | 0        | NO_SOURCE |
       | z-stg   | Storage | 0        | NO_SOURCE |
       | z-late  | Storage | 0        | NO_SOURCE |
+      | z-rsv-wh2 | Storage | 0      | NO_SOURCE |
 
   Scenario: A decommissioned reserve bin no longer supplies requests
     Given bin "WH1-FWD-A01" of site "WH1" holds 40 on hand and 0 reserved of "SKU-1"
