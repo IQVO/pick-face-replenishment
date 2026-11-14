@@ -58,6 +58,18 @@ Feature: Detection rules of the replenishment policy (documentation-derived)
     Then the sweep raised 1, found 0 already open, 0 healthy, 0 without policy and 0 without source
     And the last ReplenishmentRequested fact moves 40 units from "WH1-RSV-A07" to "WH1-FWD-A01" with priority "NORMAL" sized by policy min 50 max 80 at version 1
 
+  Scenario Outline: A pick face reads BELOW_MIN from the moment its projected level reaches the minimum
+    Given bin "WH1-FWD-A01" of site "WH1" holds 40 on hand and 0 reserved of "SKU-1"
+    And bin "WH1-RSV-A07" of site "WH1" holds 100 of "SKU-1"
+    When I change the policy of "SKU-1" at site "WH1" from version 1 to min <min> max 80 and multiple 1
+    Then the pick face "WH1-FWD-A01" of site "WH1" has status "<status>"
+
+    Examples:
+      | min | status    |
+      | 39  | OK        |
+      | 40  | BELOW_MIN |
+      | 41  | BELOW_MIN |
+
   # ---- the source bin: fullest-reserve-bin-v1 ----------------------------
 
   Scenario: Reserve bins with the same usable stock are tied to the smallest bin code

@@ -72,3 +72,22 @@ Feature: Policy and read rules (documentation-derived)
     Then the command fails with "state must be one of Requested, Completed, Cancelled"
     When I list the pick faces of site "WH1" with status "LOW"
     Then the command fails with "status must be one of BELOW_MIN, OK, NO_SOURCE, NO_POLICY"
+
+  Scenario: A page that holds exactly the last items has no next page
+    Given a policy for "SKU-1" at site "WH1" with min 10 max 60 and multiple 1
+    And a policy for "SKU-2" at site "WH1" with min 10 max 60 and multiple 1
+    And the forward location "WH1-FWD-B01" is registered
+    And the approved slot plan of site "WH1" assigns "SKU-1" to "WH1-FWD-A01", "SKU-2" to "WH1-FWD-B01"
+    And bin "WH1-FWD-A01" of site "WH1" holds 8 on hand and 0 reserved of "SKU-1"
+    And bin "WH1-FWD-B01" of site "WH1" holds 8 on hand and 0 reserved of "SKU-2"
+    And bin "WH1-RSV-A07" of site "WH1" holds 100 of "SKU-1"
+    And bin "WH1-RSV-A07" of site "WH1" holds 100 of "SKU-2"
+    When I list policies with a page size of 2
+    Then the listed policies are "WH1/SKU-1,WH1/SKU-2"
+    And there is no next page
+    When I list the requests of site "WH1" with a page size of 2
+    Then the listed requests are "repl-0002,repl-0001"
+    And there is no next page
+    When I list the pick faces of site "WH1" with a page size of 2
+    Then the pick faces are "WH1-FWD-A01,WH1-FWD-B01"
+    And there is no next page
