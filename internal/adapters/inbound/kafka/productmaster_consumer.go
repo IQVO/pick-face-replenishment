@@ -21,15 +21,16 @@ const (
 )
 
 // The payloads mirror product-master's v1 events (restated here, never
-// imported). Their extra fields (childGtin, qtyOfChild, dims, isOrderable,
-// isDespatchUnit, reason...) are ignored.
+// imported), snake_case keys exactly as its encoder writes them (units_per_pack,
+// effective_from, effective_to). Their extra fields (child_gtin, qty_of_child,
+// dims, is_orderable, is_despatch_unit, reason...) are ignored.
 
 type productPackLevelDeclaredData struct {
 	SKU           string    `json:"sku"`
 	Level         string    `json:"level"`
 	GTIN          string    `json:"gtin"`
-	UnitsPerPack  int64     `json:"unitsPerPack"`
-	EffectiveFrom time.Time `json:"effectiveFrom"`
+	UnitsPerPack  int64     `json:"units_per_pack"`
+	EffectiveFrom time.Time `json:"effective_from"`
 	Version       int64     `json:"version"`
 }
 
@@ -37,7 +38,7 @@ type productPackLevelRetiredData struct {
 	SKU         string    `json:"sku"`
 	Level       string    `json:"level"`
 	GTIN        string    `json:"gtin"`
-	EffectiveTo time.Time `json:"effectiveTo"`
+	EffectiveTo time.Time `json:"effective_to"`
 	Version     int64     `json:"version"`
 }
 
