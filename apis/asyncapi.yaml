@@ -26,8 +26,8 @@ info:
     `urn:warehouse:pick-face-replenishment:analytics:<EventName>:v1`), together
     with `ReplenishmentPolicyDeclared`, which is analytics-only.
 
-    **Consumed (ADR 0003).** `BinStockLevelChanged` (pending producer change P1)
-    and `StockRelocated` from inventory-storage, `SlotPlanApproved` from
+    **Consumed (ADR 0003).** `BinStockLevelChanged` (producer change P1, built in
+    inventory-storage) and `StockRelocated` from inventory-storage, `SlotPlanApproved` from
     slotting-optimization, and `ZoneRegistered`, `LocationSlotRegistered` and
     `LocationSlotDecommissioned` from facility-layout. Each feeds a durable local
     copy or closes a request (modes `INVENTORY_MODE`, `SLOTTING_MODE`,
@@ -458,8 +458,8 @@ components:
       title: BinStockLevelChanged (consumed, inventory-storage)
       summary: The absolute on-hand and reserved level of one SKU in one bin changed.
       description: |
-        PENDING PRODUCER CHANGE P1: inventory-storage does not publish this type
-        yet; this contract is pinned consumer-first and the producer will match it.
+        Producer change P1 is built: inventory-storage publishes this type (its
+        ADR 0040). The contract was pinned here consumer-first.
         `type` = `com.warehouse.wms.inventory-storage.stock.BinStockLevelChanged`,
         source `/warehouse/inventory-storage`, dataschema
         `urn:warehouse:inventory-storage:events:BinStockLevelChanged:v1`. Subject
@@ -504,9 +504,9 @@ components:
         dataschema `urn:warehouse:inventory-storage:events:StockRelocated:v1`.
         Subject and Kafka key = `relocation_id`. Restated from inventory-storage's
         contract (its ADR 0039), never imported. Act only when `reason` is
-        `REPLENISHMENT`, a value inventory-storage adds with producer change P4
-        (today it publishes `SLOTTING`, `CONSOLIDATION` and `MANUAL`); ignore every
-        other reason.
+        `REPLENISHMENT`, a value inventory-storage added with producer change P4
+        (its ADR 0041; it also publishes `SLOTTING`, `CONSOLIDATION` and `MANUAL`);
+        ignore every other reason.
       contentType: application/cloudevents+json
       tags:
         - name: consumed
