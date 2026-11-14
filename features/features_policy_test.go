@@ -7,7 +7,7 @@ import (
 )
 
 func registerPolicySteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^I declare a policy for "([^"]*)" at site "([^"]*)" with min (-?\d+) max (-?\d+) and multiple (\d+)$`, w.declare)
+	sc.Step(`^I declare a policy for "([^"]*)" at site "([^"]*)" with min (-?\d+) max (-?\d+) and multiple (-?\d+)$`, w.declare)
 	sc.Step(`^a policy for "([^"]*)" at site "([^"]*)" with min (\d+) max (\d+) and multiple (\d+)$`, w.declare)
 	sc.Step(`^I change the policy of "([^"]*)" at site "([^"]*)" from version (\d+) to min (\d+) max (\d+) and multiple (\d+)$`, w.change)
 	sc.Step(`^I remove the policy of "([^"]*)" at site "([^"]*)" at version (\d+)$`, w.remove)

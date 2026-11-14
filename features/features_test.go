@@ -71,21 +71,25 @@ type app struct {
 	location       *usecases.ApplyLocationRegistered
 	decommissioned *usecases.ApplyLocationDecommissioned
 	relocation     *usecases.ApplyRelocation
+	packDeclared   *usecases.ApplyPackLevelDeclared
+	packRetired    *usecases.ApplyPackLevelRetired
 }
 
 // wire builds the application over fresh in-memory adapters, as cmd/api does.
 func wire() (app, *memory.EventLog) {
 	policies, requests, read := memory.NewPolicyRepo(), memory.NewRequestRepo(), memory.NewReadModel()
 	events, processed := memory.NewEventLog(), memory.NewProcessedEventRepo()
-	uow := memory.NewUnitOfWork(policies, requests, read, events, processed)
+	packLevels := memory.NewPackLevelView()
+	uow := memory.NewUnitOfWork(policies, requests, read, events, processed, packLevels)
 	clock := fixedClock{}
+	derive := usecases.PackDerivation{Policies: policies, PackLevels: packLevels, Events: events, Clock: clock}
 	eval := usecases.Evaluator{
 		Policies: policies, Requests: requests, Read: read, Events: events,
 		Clock: clock, IDs: &sequentialIDs{}, Zones: usecases.DefaultZoneConfig(),
 	}
 	intake := usecases.Intake{UoW: uow, Processed: processed}
 	return app{
-		declarePolicy:  &usecases.DeclarePolicy{Policies: policies, Events: events, UoW: uow, Clock: clock},
+		declarePolicy:  &usecases.DeclarePolicy{Policies: policies, Events: events, UoW: uow, Clock: clock, PackLevels: packLevels},
 		removePolicy:   &usecases.RemovePolicy{Policies: policies, Requests: requests, Events: events, UoW: uow, Clock: clock},
 		getPolicy:      &usecases.GetPolicy{Policies: policies},
 		listPolicies:   &usecases.ListPolicies{Policies: policies},
@@ -101,6 +105,8 @@ func wire() (app, *memory.EventLog) {
 		location:       &usecases.ApplyLocationRegistered{Intake: intake, Read: read},
 		decommissioned: &usecases.ApplyLocationDecommissioned{Intake: intake, Read: read},
 		relocation:     &usecases.ApplyRelocation{Intake: intake, Requests: requests, Events: events, Clock: clock},
+		packDeclared:   &usecases.ApplyPackLevelDeclared{Intake: intake, PackLevels: packLevels, Derive: derive},
+		packRetired:    &usecases.ApplyPackLevelRetired{Intake: intake, PackLevels: packLevels, Derive: derive},
 	}, events
 }
 
@@ -202,4 +208,5 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	registerCommandSteps(sc, w)
 	registerListSteps(sc, w)
 	registerAssertionSteps(sc, w)
+	registerRulesSteps(sc, w)
 }
