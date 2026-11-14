@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/telemetry"
+	"github.com/claudioed/pick-face-replenishment/internal/application/ports"
 )
 
 // defaultServiceName is the OTEL_SERVICE_NAME default: the name every span,
@@ -64,4 +65,17 @@ func startTelemetry(logger *slog.Logger, cfg telemetryEnv) (func(), error) {
 			logger.Warn("telemetry flush failed on shutdown", "error", err)
 		}
 	}, nil
+}
+
+// replenishmentMetrics builds the replenishment.request.raised counter over the
+// MeterProvider telemetry.Setup installed. The only error is an invalid
+// instrument name (a programming error): it is not fatal, the process runs
+// without the counter, never without the use case.
+func replenishmentMetrics(logger *slog.Logger) ports.ReplenishmentMetrics {
+	m, err := telemetry.NewReplenishmentMetrics()
+	if err != nil {
+		logger.Warn("replenishment metrics unavailable; the service will run without replenishment.request.raised", "error", err)
+		return nil
+	}
+	return m
 }
