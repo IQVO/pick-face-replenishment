@@ -126,7 +126,7 @@ func brokersFromEnv() []string {
 }
 
 // bootConfig is the mandatory configuration of the service: real Postgres,
-// real Kafka and the three consumers' groups. There is no default and no
+// real Kafka and the four consumers' groups. There is no default and no
 // degraded mode behind any of it.
 type bootConfig struct {
 	databaseURL   string

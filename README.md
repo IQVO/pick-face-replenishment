@@ -91,8 +91,9 @@ reason `REPLENISHMENT` (its ADR 0041). In `warehouse-infra`
 wes-work-planning's `helm-values` set `REPLENISHMENT_MODE=kafka` (group
 `wes-work-planning-replenishment`); the `REPLENISH` path is still an
 operator seed step (process-path-management `seed_catalogue.py`, post-deploy
-seed 1) and this repository's MCP server, analytics pair and web remote are
-not wired there. Cluster state was not checked; see
+seed 1). This repository's MCP server, analytics pair and web remote are
+enabled in the helm values for this service in `warehouse-infra`
+(`helm-values/pick-face-replenishment.yaml`). Cluster state was not checked; see
 [Integration](docs/docs/ecosystem/integration.md).
 
 ---
@@ -336,8 +337,9 @@ cd web && npm install && npm run dev     # http://localhost:5196
 ```
 
 In the cluster the chart's optional `frontend` component (off by default)
-serves the built bundle behind warehouse-infra's Nginx web gateway; the
-remote is not yet registered in `warehouse-infra`. CI job `web` lints, tests
+serves the built bundle behind warehouse-infra's Nginx web gateway; `warehouse-infra`
+registers the remote (`terraform/apps.yaml` `frontend_remote:
+replenishment_mfe`, `frontend.enabled: true` in its helm values). CI job `web` lints, tests
 and builds it.
 
 ---

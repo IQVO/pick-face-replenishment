@@ -32,7 +32,7 @@ RFC 3339 UTC.
 | ReplenishmentRequested | `request_id`, `site_id`, `sku`, `forward_bin`, `source_bin`, `quantity` (at least 1), `priority` (`NORMAL` or `URGENT`), `policy_min`, `policy_max`, `requested_at` |
 | ReplenishmentCompleted | `request_id`, `site_id`, `sku`, `forward_bin`, `source_bin`, `quantity` (what the relocation moved, possibly less than requested), `completed_at` |
 | ReplenishmentCancelled | `request_id`, `site_id`, `sku`, `reason` (`OPERATOR`, `ASSIGNMENT_CHANGED`, `POLICY_REMOVED`), `cancelled_at` |
-| ReplenishmentPolicyDeclared | `site_id`, `sku`, `min_qty`, `max_qty`, `multiple`, `version`, `declared_at` |
+| ReplenishmentPolicyDeclared | `site_id`, `sku`, `min_qty`, `max_qty`, `multiple`, `multiple_source` (optional, `DECLARED` or `PACK_DERIVED`), `version`, `declared_at` |
 
 Both topics carry the same `type` and the same CloudEvents `id` per occurrence, written in one outbox transaction. A breaking
 payload change would be a new `.v2` type and dataschema, never a mutation of v1. Golden files pin the exact bytes
@@ -41,7 +41,7 @@ payload change would be a new `.v2` type and dataschema, never a mutation of v1.
 Consumers of the published events: wes-work-planning reads `ReplenishmentRequested` and `ReplenishmentCancelled` from
 `warehouse.pick-face-replenishment.events` when `REPLENISHMENT_MODE=kafka` (its ADR 0042; it ignores
 `ReplenishmentCompleted`, and the default `permissive` consumes nothing); `warehouse-infra` sets it on wes-work-planning. The
-analytics topic is read only by this repository's `cmd/pfr-projector` (ADR 0008), which `warehouse-infra` does not deploy - see [Integration](/docs/ecosystem/integration).
+analytics topic is read only by this repository's `cmd/pfr-projector` (ADR 0008), which is enabled in `warehouse-infra` helm values (`analytics.enabled: true` in `helm-values/pick-face-replenishment.yaml`; cluster state was not checked) - see [Integration](/docs/ecosystem/integration).
 
 ## Consumed
 
@@ -53,9 +53,11 @@ analytics topic is read only by this repository's `cmd/pfr-projector` (ADR 0008)
 | `com.warehouse.wms.facility-layout.zone.ZoneRegistered` | `warehouse.facility.events` | `zoneId` | `zoneId`, `siteCode`, `zoneCode` | layout consumer, `ApplyZone` |
 | `com.warehouse.wms.facility-layout.locationslot.LocationSlotRegistered` | `warehouse.facility.events` | `locationCode` | `locationCode`, `zoneId`, `role` | layout consumer, `ApplyLocationRegistered` |
 | `com.warehouse.wms.facility-layout.locationslot.LocationSlotDecommissioned` | `warehouse.facility.events` | `locationCode` | `locationCode` | layout consumer, `ApplyLocationDecommissioned` |
+| `com.warehouse.wms.product-master.product.ProductPackLevelDeclared` | `warehouse.product-master.events` | SKU | `sku`, `level`, `gtin`, `unitsPerPack`, `effectiveFrom`, `version` | product-master consumer, `ApplyPackLevelDeclared` |
+| `com.warehouse.wms.product-master.product.ProductPackLevelRetired` | `warehouse.product-master.events` | SKU | `sku`, `level`, `gtin`, `effectiveTo`, `version` | product-master consumer, `ApplyPackLevelRetired` |
 
-The payloads of consumed events are restated here from the producers' contracts, never imported; fields not listed are
-ignored. Producer status of each type is on [Integration](/docs/ecosystem/integration#upstream-and-downstream-edges).
+Eight types are consumed, from four topics (`apis/asyncapi.yaml`). The payloads of consumed events are restated here from the producers' contracts, never imported; fields not listed are
+ignored. For the two pack-level types the key names in the table are the ones this service decodes (`internal/adapters/inbound/kafka/productmaster_consumer.go`); product-master's encoder writes `units_per_pack`, `effective_from` and `effective_to` in snake_case (product-master `internal/adapters/outbound/kafka/encoder.go`), see the note on the message in `apis/asyncapi.yaml`. Producer status of each type is on [Integration](/docs/ecosystem/integration#upstream-and-downstream-edges).
 
 ## Example: ReplenishmentRequested
 

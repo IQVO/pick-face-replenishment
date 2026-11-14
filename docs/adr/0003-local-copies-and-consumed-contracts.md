@@ -108,3 +108,8 @@ copy produces `NO_SOURCE` or `NO_POLICY`, never a guess.
   is fixed here in a follow-up PR.
 - Three consumer groups' worth of lag is the cost of keeping the service
   independent of its producers' availability.
+
+## Addendum 2026-11-13: current state
+
+Producer changes P1 and P4 have shipped in inventory-storage: it publishes `BinStockLevelChanged` (its ADR 0040; `internal/adapters/outbound/kafka/publisher.go`) and applies a completed `REPLENISH` task as a relocation with reason `REPLENISHMENT` (its ADR 0041; `internal/application/usecases/apply_replenish_task.go`, `internal/domain/relocation/relocation.go`).
+This service now runs four consumers, not three: `cmd/api/consumers.go` adds `PACK_LEVEL_MODE` and `PACK_LEVEL_CONSUMER_GROUP` for product-master's `ProductPackLevelDeclared` and `ProductPackLevelRetired` (ADR 0009). `apis/asyncapi.yaml` lists eight consumed types.
