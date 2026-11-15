@@ -27,8 +27,17 @@ unleash:
     # differs. See HARNESS.md's mutation-testing section for the
     # tagless-switch-under-reports pitfall before assuming a low number
     # means missing tests.
-    # Measured 2026-10-17 on pick-face-replenishment's four domain packages
-    # (replenishment, policy, detection, shared): efficacy 100% and mutator
-    # coverage 100% in each, 0 lived mutants. Thresholds sit strictly below.
-    efficacy: 90
-    mutant-coverage: 90
+    # Measured 2026-11-15 (gremlins v0.6.0, `make mutation-full` on ./internal/domain,
+    # cold test cache), per package -- no survivors, no uncovered mutants:
+    #   internal/domain/replenishment efficacy 100.00%  mutant-coverage 100.00%  (57 killed / 0 lived / 0 not covered)
+    #   internal/domain/policy        efficacy 100.00%  mutant-coverage 100.00%  (27 killed / 0 lived / 0 not covered)
+    #   internal/domain/detection     efficacy 100.00%  mutant-coverage 100.00%  (21 killed / 0 lived / 0 not covered)
+    #   internal/domain/packlevel     efficacy 100.00%  mutant-coverage 100.00%  (14 killed / 0 lived / 0 not covered)
+    #   internal/domain/shared        efficacy 100.00%  mutant-coverage 100.00%  (8 killed / 0 lived / 0 not covered)
+    #   aggregate (./internal/domain) efficacy 100.00%  mutant-coverage 100.00%  (127 killed)
+    # Fleet standard 99/99: gremlins fails when measured <= threshold, so 99 needs
+    # >= 99.01% measured. Thresholds are plain numbers on purpose -- a quoted
+    # YAML string is read as 0 by gremlins v0.6.0 (float type assertion) and the
+    # gate never fails (dormant).
+    efficacy: 99
+    mutant-coverage: 99

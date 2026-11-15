@@ -87,7 +87,7 @@ There is no schemathesis job. The REST and event contracts are guarded by:
 
 ## Mutation (gremlins)
 
-`.gremlins.yaml`: one worker, `timeout-coefficient` 30, thresholds `efficacy: 90` and `mutant-coverage: 90`. Gremlins fails
+`.gremlins.yaml`: one worker, `timeout-coefficient` 30, thresholds `efficacy: 99` and `mutant-coverage: 99`. Gremlins fails
 when the measured value is at or below the threshold, so the thresholds sit strictly below the measured 100 % / 100 % (no
 lived mutants) on the four domain packages `replenishment`, `policy`, `detection` and `shared`. `make mutation` runs
 those four, each on its own (the `mutation-fast` CI job, blocking on every PR). `make mutation-full` runs
