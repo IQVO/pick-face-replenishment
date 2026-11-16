@@ -126,7 +126,7 @@ multiple), request, projected level, priority, source bin policy, usable stock.
 
 ## Verification metrics
 
-Domain coverage gate 90 %; mutation efficacy and mutant coverage thresholds 90 % (measured 100 %); 57 BDD scenarios;
+Domain coverage gate 90 %; mutation efficacy and mutant coverage thresholds 99 % (measured 100 %); 57 BDD scenarios;
 golden bytes per published type; fitness tests ([Testing](/docs/development/testing)). The service exports no runtime
 metrics ([Observability](/docs/operations/observability)).
 
