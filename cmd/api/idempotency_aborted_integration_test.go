@@ -40,9 +40,12 @@ func abortedKeyed(key string) *http.Request {
 	return req
 }
 
-// A mapped 4xx over an aborted transaction is returned truthfully (not a 500),
-// stored, and replayed without re-running the handler.
-func TestIdempotencyA4xxOverAnAbortedTransactionIsRecordedAndReplayed(t *testing.T) {
+// A mapped 4xx over an aborted transaction is returned truthfully (not a 500)
+// and, with no replay class marked by the error writer (this handler writes the
+// 409 by hand), released: nothing is stored and the same key runs the handler
+// again. (A FINAL refusal is stored after the same rollback: see
+// idempotency_replay_classes_integration_test.go.)
+func TestIdempotencyA4xxOverAnAbortedTransactionIsReturnedTruthfullyAndReleased(t *testing.T) {
 	pool := pgtest.NewPool(t)
 	var calls atomic.Int64
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,25 +62,17 @@ func TestIdempotencyA4xxOverAnAbortedTransactionIsRecordedAndReplayed(t *testing
 	if first.Code != http.StatusConflict {
 		t.Fatalf("first = %d %s, want the truthful 409", first.Code, first.Body.String())
 	}
-	var status int
-	pgtest.Scan(t, pool, `SELECT status FROM idempotency_keys WHERE key = $1`, []any{"k-aborted-4xx"}, &status)
-	if status != http.StatusConflict {
-		t.Fatalf("stored status = %d, want 409", status)
-	}
-	if n := pgtest.Count(t, pool, "idempotency_keys"); n != 1 {
-		t.Fatalf("idempotency rows = %d, want only the 409 outcome (the handler's writes are gone)", n)
+	if n := pgtest.Count(t, pool, "idempotency_keys"); n != 0 {
+		t.Fatalf("idempotency rows = %d, want none: an unclassified refusal is released (the handler's writes are gone)", n)
 	}
 
-	replay := httptest.NewRecorder()
-	mw.ServeHTTP(replay, abortedKeyed("k-aborted-4xx"))
-	if replay.Code != http.StatusConflict || replay.Header().Get(inboundhttp.IdempotencyReplayedHeader) != "true" {
-		t.Fatalf("replay = %d replayed=%q, want the cached 409", replay.Code, replay.Header().Get(inboundhttp.IdempotencyReplayedHeader))
+	again := httptest.NewRecorder()
+	mw.ServeHTTP(again, abortedKeyed("k-aborted-4xx"))
+	if again.Code != http.StatusConflict || again.Header().Get(inboundhttp.IdempotencyReplayedHeader) != "" {
+		t.Fatalf("second = %d replayed=%q, want a fresh 409", again.Code, again.Header().Get(inboundhttp.IdempotencyReplayedHeader))
 	}
-	if replay.Body.String() != first.Body.String() {
-		t.Fatalf("replay body = %s, want %s", replay.Body.String(), first.Body.String())
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("handler ran %d times, want 1", calls.Load())
+	if calls.Load() != 2 {
+		t.Fatalf("handler ran %d times, want 2: the key was released", calls.Load())
 	}
 }
 
