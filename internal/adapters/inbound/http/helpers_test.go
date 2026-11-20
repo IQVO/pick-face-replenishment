@@ -89,10 +89,17 @@ type faultyStore struct {
 	// beforeSave runs before the first Save of a key lands, to play the
 	// request that wins a race.
 	beforeSave func(rec repository.IdempotencyRecord)
-	saves      atomic.Int32
+	// beforeLookup runs before every Lookup with its 1-based call number.
+	beforeLookup func(call int32)
+	saves        atomic.Int32
+	lookups      atomic.Int32
 }
 
 func (s *faultyStore) Lookup(ctx context.Context, key string) (repository.IdempotencyRecord, bool, error) {
+	call := s.lookups.Add(1)
+	if s.beforeLookup != nil {
+		s.beforeLookup(call)
+	}
 	if s.lookupErr != nil {
 		return repository.IdempotencyRecord{}, false, s.lookupErr
 	}

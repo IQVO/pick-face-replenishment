@@ -93,6 +93,10 @@ over a direct connection.
 | `outbox_events` | `id` | the transactional outbox, same shape as the fleet's |
 | `idempotency_keys` | `key` | answers of POSTs made with an `Idempotency-Key` (2xx and 4xx only) |
 
+> **Update 2026-11-20.** [ADR 0014](/docs/adr/0014-every-problem-type-has-a-replay-class) supersedes the "(2xx and 4xx
+> only)" of this row: a stored answer is now a 2xx or a refusal whose problem type is FINAL (a RETRYABLE refusal and a
+> 5xx are never stored). The Decision text above is unchanged.
+
 - **One unit of work, one transaction.** `UnitOfWork.Do` begins a pgx
   transaction and carries it in the context; every repository joins it, and a
   nested `Do` joins the outer one. Aggregate save, outbox rows and the

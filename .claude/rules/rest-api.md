@@ -42,7 +42,9 @@ below are the intended ones (see `.claude/rules/domain-model.md`).
   `POST /replenishments/{requestId}/cancellations` and `POST /sites/{siteId}/evaluations`
   whenever the service runs (it always runs on Postgres, ADR 0006); absent is 400
   `idempotency-key-required`. Same key and same body replays the original
-  response; same key with a different body is 409 `idempotency-key-reused`.
+  response (a 2xx or a FINAL refusal; a RETRYABLE refusal is not stored and
+  its key is released, ADR 0014); same key with a different body is 409
+  `idempotency-key-reused`.
 - `If-Match` carries the policy version (the `ETag` of a previous response,
   quoted or not): omitted creates, present replaces or removes. A stale value
   is 409 `concurrent-modification`; a non-integer is 400 `invalid-if-match`.

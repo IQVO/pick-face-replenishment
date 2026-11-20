@@ -57,12 +57,15 @@ type funnelReportDTO struct {
 
 // Problems of the reports binary.
 var (
-	invalidReportRange = problem{http.StatusBadRequest, "invalid-report-range",
-		"from and to must form a valid RFC 3339 range of at most 366 days", ""}
-	invalidReportGranularity = problem{http.StatusBadRequest, "invalid-report-granularity",
-		"granularity must be \"day\"", ""}
-	reportStoreError = problem{http.StatusInternalServerError, "report-store-error",
-		"The report could not be served", "the analytical database query failed"}
+	// A range that omits `from` or `to` is anchored on the server's clock, so this refusal is not
+	// a function of the request alone: RETRYABLE (GET routes never reach the idempotency
+	// middleware; the class is declared because every problem type has one, ADR 0014).
+	invalidReportRange = newProblem(http.StatusBadRequest, "invalid-report-range",
+		"from and to must form a valid RFC 3339 range of at most 366 days", "", replayRetryable)
+	invalidReportGranularity = newProblem(http.StatusBadRequest, "invalid-report-granularity",
+		"granularity must be \"day\"", "", replayFinal)
+	reportStoreError = newProblem(http.StatusInternalServerError, "report-store-error",
+		"The report could not be served", "the analytical database query failed", replayRetryable)
 )
 
 // NewReportsRouter builds the router of cmd/pfr-reports: /healthz,
