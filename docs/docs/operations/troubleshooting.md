@@ -86,10 +86,13 @@ makes no outbound HTTP or MCP call, so the only dependencies that can fail are P
 
 ## Idempotency-Key behaviour worth knowing
 
-- A 4xx answer is stored and replayed for the same key and body, so retrying a rejected request with the same key
-  returns the same rejection even if you have since fixed the cause (for example after the missing policy was declared).
-  Use a new key after fixing the cause.
-- Every replay (a 2xx or a 4xx answered from the store, or the winner's answer given to the loser of a race) carries the
+- Every problem type has one replay class (ADR 0014). A FINAL refusal (the request-shaped 400s, 404
+  `replenishment-not-found`, 409 `replenishment-not-open`) is stored and replayed for the same key and body. A
+  RETRYABLE refusal (`concurrent-modification`, `replenishment-already-open`, `no-forward-assignment`, `no-policy`,
+  `no-source-stock`, `nothing-to-replenish`, `quantity-exceeds-max`) is not stored: the key is released and the same
+  key may be sent again once the cause changed (declare the policy, close the open request, let the stock arrive); a
+  different body under a released key is a new request.
+- Every replay (a 2xx or a FINAL refusal answered from the store, or the winner's answer given to the loser of a race) carries the
   response header `Idempotency-Replayed: true`; the first execution never does.
 - A 5xx is never stored: the same key may retry the real work.
 - Under Postgres two concurrent requests with one new key both run, but the first to store wins and the other rolls back

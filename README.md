@@ -235,7 +235,7 @@ operations over eleven paths:
 | GET | `/policies/{siteId}/{sku}` | Get one policy |
 | DELETE | `/policies/{siteId}/{sku}` | Remove the policy |
 | GET | `/pick-faces` | The forward pick faces with stock, policy bounds, open request and status (`BELOW_MIN`, `OK`, `NO_SOURCE`, `NO_POLICY`) |
-| POST | `/replenishments` | Raise a request by hand. **All three POSTs are wrapped by the fleet `Idempotency-Key` middleware** (same key + method + path + body replays the original response with `Idempotency-Replayed: true`; the same key with anything else is `409 idempotency-key-reused`) |
+| POST | `/replenishments` | Raise a request by hand. **All three POSTs are wrapped by the fleet `Idempotency-Key` middleware** (same key + method + path + body replays the original response with `Idempotency-Replayed: true` — a 2xx or a FINAL refusal; a RETRYABLE refusal is not stored and its key is released, ADR 0014; the same key with anything else is `409 idempotency-key-reused`) |
 | GET | `/replenishments` | List requests (newest first) |
 | GET | `/replenishments/{requestId}` | One request |
 | POST | `/replenishments/{requestId}/cancellations` | Cancel a request |
