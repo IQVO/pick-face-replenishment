@@ -1,13 +1,18 @@
 package http_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	inboundhttp "github.com/claudioed/pick-face-replenishment/internal/adapters/inbound/http"
+	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/memory"
 	"github.com/claudioed/pick-face-replenishment/internal/application/repository"
 )
 
@@ -99,18 +104,65 @@ func TestSameKeyWithAnotherRequestIsRejected(t *testing.T) {
 	}
 }
 
-func TestA4xxAnswerIsStoredAndReplayed(t *testing.T) {
+// malformedBody is a refusal that is a function of the request alone (FINAL).
+const malformedBody = `{"siteId":"SITE-1","sku":"SKU-1","bogus":1}`
+
+func TestAFinalRefusalIsStoredAndReplayed(t *testing.T) {
 	f := newIdempotentFixture(t)
 	f.seed(t)
-	first := f.call(t, http.MethodPost, "/replenishments", raiseSKU1, key1, "k-4xx")
-	expectProblem(t, first, http.StatusUnprocessableEntity, "no-policy")
-	f.declare(t) // the world changed, but the key still means the rejection
-	again := f.call(t, http.MethodPost, "/replenishments", raiseSKU1, key1, "k-4xx")
-	expectProblem(t, again, http.StatusUnprocessableEntity, "no-policy")
+	first := f.call(t, http.MethodPost, "/replenishments", malformedBody, key1, "k-final")
+	expectProblem(t, first, http.StatusBadRequest, "malformed-request")
+	again := f.call(t, http.MethodPost, "/replenishments", malformedBody, key1, "k-final")
+	expectProblem(t, again, http.StatusBadRequest, "malformed-request")
 	expectReplayOf(t, first, again)
-	fresh := f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-new")
-	if fresh.body["requestId"] == nil {
-		t.Fatalf("a new key must run: %s", fresh.raw)
+	fresh := f.call(t, http.MethodPost, "/replenishments", raiseSKU1, key1, "k-new")
+	expectProblem(t, fresh, http.StatusUnprocessableEntity, "no-policy") // a new key runs, and no policy is declared
+	expectFirstExecution(t, fresh)
+}
+
+// A RETRYABLE refusal (no-policy: a fact another request may declare later) is not stored, its
+// key is released, and once the world changed the same key executes and succeeds.
+func TestARetryableRefusalIsNotStoredAndItsKeyRetries(t *testing.T) {
+	f := newIdempotentFixture(t)
+	f.seed(t)
+	first := f.call(t, http.MethodPost, "/replenishments", raiseSKU1, key1, "k-retry")
+	expectProblem(t, first, http.StatusUnprocessableEntity, "no-policy")
+	expectFirstExecution(t, first)
+	if saves := f.store.saves.Load(); saves != 0 {
+		t.Fatalf("a RETRYABLE refusal was stored (%d saves)", saves)
+	}
+	f.declare(t) // the world changed: the same key must now run
+	retry := f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-retry")
+	expectFirstExecution(t, retry)
+	expectReplayOf(t, retry, f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-retry"))
+	if f.openRequests(t) != 1 {
+		t.Fatalf("open requests = %d, want one", f.openRequests(t))
+	}
+}
+
+// A refusal that reaches the middleware with no class (written by hand, not through the error
+// writer) is released like RETRYABLE: the safe fallback, never a stored stale answer.
+func TestARefusalWithNoClassIsReleased(t *testing.T) {
+	store := &faultyStore{IdempotencyStore: memory.NewIdempotencyStore()}
+	uow := memory.NewUnitOfWork()
+	calls := 0
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusConflict)
+	})
+	mw := inboundhttp.NewIdempotency(store, uow, fixedClock{}).Middleware(handler)
+	for range 2 {
+		req := httptest.NewRequest(http.MethodPost, "/replenishments", strings.NewReader(`{}`))
+		req.Header.Set(key1, "k-no-class")
+		rec := httptest.NewRecorder()
+		mw.ServeHTTP(rec, req)
+		if rec.Code != http.StatusConflict || rec.Header().Get(replayedHeader) != "" {
+			t.Fatalf("answer = %d replayed=%q, want a fresh 409", rec.Code, rec.Header().Get(replayedHeader))
+		}
+	}
+	if calls != 2 || store.saves.Load() != 0 {
+		t.Fatalf("handler ran %d times with %d saves, want 2 and 0: an unclassified refusal is not stored", calls, store.saves.Load())
 	}
 }
 
@@ -203,15 +255,38 @@ func TestTheLoserOfARaceReplaysTheWinnersAnswer(t *testing.T) {
 	}
 }
 
-func TestTheLoserOfARaceWithA4xxReplaysTheWinnersAnswer(t *testing.T) {
+func TestTheLoserOfARaceWithAFinalRefusalReplaysTheWinnersAnswer(t *testing.T) {
 	f := newIdempotentFixture(t)
 	f.seed(t)
 	f.store.beforeSave = func(rec repository.IdempotencyRecord) {
 		must(t, f.store.IdempotencyStore.Save(t.Context(), winnerAnswer(t, rec)))
 	}
-	r := f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-race4")
+	r := f.mustCall(t, http.MethodPost, "/replenishments", malformedBody, http.StatusCreated, key1, "k-race4")
 	if r.body["requestId"] != "repl-winner" {
-		t.Fatalf("the 4xx loser did not replay the winner: %s", r.raw)
+		t.Fatalf("the FINAL-refusal loser did not replay the winner: %s", r.raw)
+	}
+}
+
+// The loser of a race that ends in a RETRYABLE refusal (replenishment-already-open: the winner
+// committed first) stores nothing, but replays the winner's stored answer instead of its own
+// refusal: the key already holds one.
+func TestTheLoserOfARaceWithARetryableRefusalReplaysTheWinnersAnswer(t *testing.T) {
+	f := newIdempotentFixture(t)
+	f.seed(t)
+	f.store.beforeLookup = func(call int32) {
+		if call != 2 { // call 1 is the middleware's first lookup; call 2 follows the refusal
+			return
+		}
+		rec := winnerAnswer(t, repository.IdempotencyRecord{Key: "k-race-retryable", CreatedAt: now})
+		rec.Fingerprint = fingerprintOf(http.MethodPost, "/replenishments", raiseSKU1)
+		must(t, f.store.IdempotencyStore.Save(t.Context(), rec))
+	}
+	r := f.mustCall(t, http.MethodPost, "/replenishments", raiseSKU1, http.StatusCreated, key1, "k-race-retryable")
+	if r.body["requestId"] != "repl-winner" || r.header.Get(replayedHeader) != "true" {
+		t.Fatalf("the RETRYABLE-refusal loser did not replay the winner: %s %v", r.raw, r.header)
+	}
+	if saves := f.store.saves.Load(); saves != 0 {
+		t.Fatalf("the loser stored its refusal (%d saves)", saves)
 	}
 }
 
@@ -269,4 +344,12 @@ func TestOversizedBodyIsMalformed(t *testing.T) {
 	f := newIdempotentFixture(t)
 	big := `{"siteId":"SITE-1","sku":"` + strings.Repeat("a", 70<<10) + `"}`
 	expectProblem(t, f.call(t, http.MethodPost, "/replenishments", big, key1, "k-big"), http.StatusBadRequest, "malformed-request")
+}
+
+// fingerprintOf is the middleware's request fingerprint (method, escaped path, body), recomputed
+// so a test can store the answer of a request that won a race.
+func fingerprintOf(method, path, body string) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(method + "\n" + path + "\n" + body))
+	return hex.EncodeToString(h.Sum(nil))
 }
