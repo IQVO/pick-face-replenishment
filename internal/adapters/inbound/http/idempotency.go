@@ -46,17 +46,26 @@ var (
 //   - A new key runs the handler INSIDE one unit of work. A 2xx answer is saved
 //     in that same transaction, so the effects, their outbox rows and the
 //     stored answer commit or roll back together.
-//   - A 4xx answer rolls the unit of work back (a rejected request leaves no
-//     effect, and a Postgres transaction that hit a constraint is aborted
-//     anyway) and is then stored on its own, so the same key and body replay
-//     the same rejection. A 5xx answer is rolled back and NEVER stored, so
-//     the same key can retry the real work.
+//   - Any other answer rolls the whole unit of work back (a refused request
+//     leaves no effect, and a Postgres transaction that hit a constraint is
+//     aborted anyway). Whether the refusal is then stored on its own is the
+//     replay class its problem type declares (ADR 0014; the error writer marks
+//     the capture, this middleware holds no list of slugs): FINAL is stored, so
+//     the same key and body replay the same refusal; RETRYABLE, a refusal with no
+//     class and a 5xx are NEVER stored, so the key is released (it never held a
+//     row) and the same key retries the real work. A different body under a
+//     released key is a new request. OUTCOME (a refusal that commits state) cannot
+//     exist here: the rollback is total, and a test fails if a problem declares it.
 //   - Two concurrent requests with one new key both run, but the store keeps
 //     the first writer's answer (ports.IdempotencyStore.Save): after saving, a
 //     request re-reads the key in its own transaction, and the one that finds
 //     another answer rolls back its effects and replays the winner's. Under
 //     Postgres the second Save blocks on the key's unique index until the
-//     first transaction ends, so the re-read sees the committed winner.
+//     first transaction ends, so the re-read sees the committed winner. A
+//     duplicate that ends in an unstored refusal looks the key up once more and
+//     replays a winner's stored answer if there is one; otherwise it answers its
+//     own refusal and the key stays free (a first request refused RETRYABLE
+//     leaves nothing for a duplicate to wait on or replay).
 type Idempotency struct {
 	Store  ports.IdempotencyStore
 	UoW    ports.UnitOfWork
@@ -145,6 +154,34 @@ type capture struct {
 	header http.Header
 	code   int
 	body   bytes.Buffer
+	// class is the replay class the error writer marked; empty when the handler
+	// answered without a problem (or with one that declares none).
+	class replayClass
+}
+
+// markReplay implements replayMarker.
+func (c *capture) markReplay(class replayClass) { c.class = class }
+
+// success reports a 2xx answer: the only status range stored without a class.
+func (c *capture) success() bool {
+	return c.code >= http.StatusOK && c.code < http.StatusMultipleChoices
+}
+
+// storable reports whether the answer is stored under the key: a 2xx; never a
+// 5xx; any other answer only when its problem type is FINAL. RETRYABLE, a problem
+// with no class (or a misspelt one) and OUTCOME are released: a released refusal
+// costs one more execution, a wrongly stored one pins a stale refusal for the
+// retention window. OUTCOME is released because this store cannot honour it (the
+// refusal's writes are rolled back), and no problem type declares it.
+func (c *capture) storable() bool {
+	switch {
+	case c.success():
+		return true
+	case c.code >= http.StatusInternalServerError:
+		return false
+	default:
+		return c.class == replayFinal
+	}
 }
 
 func (c *capture) Header() http.Header { return c.header }
@@ -176,7 +213,7 @@ func (m *Idempotency) serveFresh(w http.ResponseWriter, r *http.Request, next ht
 	)
 	err := m.UoW.Do(r.Context(), func(ctx context.Context) error {
 		out = serveCaptured(next, r.WithContext(ctx))
-		if out.code >= http.StatusBadRequest {
+		if !out.success() {
 			return errRollback
 		}
 		rec, err := m.record(key, fp, out)
@@ -252,14 +289,19 @@ func sameAnswer(a, b repository.IdempotencyRecord) bool {
 		bytes.Equal(a.Body, b.Body) && a.CreatedAt.Equal(b.CreatedAt)
 }
 
-// finishRejected answers a request whose unit of work was rolled back: a 5xx
-// goes out as it is and is never stored; a 4xx is stored on its own first so a
-// retry with the same key and body replays it. If another request stored an
-// answer for the key first (it won a race this one lost with a 4xx, such as
-// replenishment-already-open), that answer is replayed instead.
+// finishRejected answers a request whose unit of work was rolled back. A 5xx
+// goes out as it is and is never stored. A refusal whose problem type is not
+// FINAL (RETRYABLE, or no class) is not stored either: see releaseRefusal. A
+// FINAL refusal is stored on its own first so a retry with the same key and
+// body replays it. If another request stored an answer for the key first (it
+// won a race this one lost), that answer is replayed instead.
 func (m *Idempotency) finishRejected(w http.ResponseWriter, r *http.Request, key, fp string, out *capture) {
 	if out.code >= http.StatusInternalServerError {
 		flush(w, out)
+		return
+	}
+	if !out.storable() {
+		m.releaseRefusal(w, r, key, fp, out)
 		return
 	}
 	rec, err := m.record(key, fp, out)
@@ -273,6 +315,20 @@ func (m *Idempotency) finishRejected(w http.ResponseWriter, r *http.Request, key
 	}
 	stored, found, err := m.Store.Lookup(r.Context(), key)
 	if err == nil && found && !sameAnswer(stored, rec) {
+		replay(w, r, stored, fp)
+		return
+	}
+	flush(w, out)
+}
+
+// releaseRefusal answers a refusal that is not stored, so its key stays free for
+// a retry (nothing was ever written under it: releasing is not writing). One
+// read first: if another request stored an answer for the key while this one ran
+// (it won a race this one lost with replenishment-already-open, say), that
+// answer is the key's and is replayed instead of the loser's refusal.
+func (m *Idempotency) releaseRefusal(w http.ResponseWriter, r *http.Request, key, fp string, out *capture) {
+	stored, found, err := m.Store.Lookup(r.Context(), key)
+	if err == nil && found {
 		replay(w, r, stored, fp)
 		return
 	}
