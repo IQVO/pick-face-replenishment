@@ -68,3 +68,9 @@ outbound adapter, seed script or recorded fixture to migrate.
 - A client may now distinguish a replay from a first execution by `Idempotency-Replayed: true`, and a key-reuse bug from
   a business `409` by the problem type `idempotency-key-reused`.
 - The generated REST reference (`docs/docs/api-reference/rest`) is regenerated from the spec with the CI recipe.
+
+## Update 2026-11-20
+
+[ADR 0014](/docs/adr/0014-every-problem-type-has-a-replay-class) supersedes one sentence of item 2: "a stored 2xx or
+4xx" now reads "a stored 2xx or a refusal whose problem type is FINAL" (a RETRYABLE refusal and a 5xx are never
+stored, and their key is released). The Decision text above is unchanged.
