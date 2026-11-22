@@ -242,6 +242,6 @@ func problemFromUseCase(err error) *problem {
 	if p, ok := lookupProblem(err); ok {
 		return p
 	}
-	slog.Error("a2a skill failed", "error", err)
+	slog.Error("a2a skill failed", "error", logReplacer.Replace(err.Error()))
 	return newProblem(500, "internal-error", "Internal server error", "the skill failed; see server logs")
 }
