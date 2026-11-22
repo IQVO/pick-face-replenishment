@@ -40,8 +40,8 @@ and request ids are sequential (`repl-0001`, ...).
 The `*_rules.feature` and `pack_derived_rules.feature` files pin the rules the context documentation states and no
 scenario pinned yet: one rule per scenario, boundaries as Outline rows. Their steps are in
 `features/features_rules_test.go` (one `registerRulesSteps` call) and `features/features_pack_test.go`. The runner
-executes **195 scenarios** (`go test ./features -run TestFeatures -count=1 -v`, the `N scenarios` line); the table counts
-definitions (`^[[:space:]]*Scenario` in `features/`, 130 in all, Outlines count once).
+executes **211 scenarios** (`go test ./features -run TestFeatures -count=1 -v`, the `N scenarios` line); the table counts
+definitions (`^[[:space:]]*Scenario` in `features/`, 141 in all, Outlines count once).
 
 | Feature | Scenarios | Covers |
 | --- | --- | --- |
