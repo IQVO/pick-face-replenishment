@@ -1,5 +1,6 @@
-{{- if .Values.a2a.enabled }}
+{{- if and .Values.a2a.enabled (not (include "pick-face-replenishment.agentsColocated" .)) }}
 {{- include "pick-face-replenishment.requireDatabase" . -}}
+{{- include "pick-face-replenishment.requireNoOtelEnv" (dict "root" . "env" .Values.a2a.extraEnv) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +8,12 @@ metadata:
   labels:
     {{- include "pick-face-replenishment.labels" . | nindent 4 }}
     app.kubernetes.io/component: a2a
+  annotations:
+    # agents.colocate cutover (ADR 0012): ArgoCD prunes this Deployment only after <release>-agents serves
+    # (PruneLast); on the un-flip wave -1 recreates it Healthy before the wave-0 Services switch back.
+    # Deployment-object annotations: syncing them rolls no pod.
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-options: PruneLast=true
 spec:
   replicas: {{ .Values.a2a.replicaCount }}
   selector:
@@ -36,6 +43,15 @@ spec:
           image: {{ include "pick-face-replenishment.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/app/a2a"]
+          # Endpoint-removal drain (capacity step 3 follow-up): Kong routes to pod IPs and drops a terminating
+          # pod only on its next config sync, seconds later, while cmd/a2a closes its listener at SIGTERM and an
+          # idle process exits at once; without this delay Kong keeps sending to a vanished pod IP (a 502 or a
+          # connect timeout through Kong on every roll). The kubelet-native sleep needs no shell (distroless).
+          # terminationGracePeriodSeconds must stay above this sleep + the 10 s HTTP drain.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 10
           ports:
             - name: http
               containerPort: {{ .Values.a2a.service.targetPort }}
@@ -79,6 +95,9 @@ spec:
                   name: {{ include "pick-face-replenishment.databaseSecretName" . }}
                   key: {{ .Values.database.migrationsExistingSecretKey }}
                   optional: true
+            {{- end }}
+            {{- if .Values.otel.enabled }}
+            {{- include "pick-face-replenishment.otelEnv" (dict "root" . "suffix" "-a2a") | nindent 12 }}
             {{- end }}
             {{- range .Values.a2a.extraEnv }}
             - {{ toYaml . | nindent 14 | trim }}

@@ -13,7 +13,7 @@ at the top level (sub-tests and table rows are not counted), measured on `develo
 | Layer | Where | Size | Command |
 | --- | --- | --- | --- |
 | Unit | `internal/domain/...`, `internal/application/...`, adapters, `cmd/api` | 285 tests in 56 files without a build tag | `make test` |
-| BDD (godog / Gherkin) | `features/*.feature` + `features/features_*_test.go` (no Go file at the repo root, enforced by `TestNoGoFilesAtRepoRoot`) | 4 feature files, 66 scenarios and 471 steps once outlines are expanded | `make bdd` |
+| BDD (godog / Gherkin) | `features/*.feature` + `features/features_*_test.go` (no Go file at the repo root, enforced by `TestNoGoFilesAtRepoRoot`) | 9 feature files, 130 scenario definitions and 195 scenarios (1401 steps) once Outline Examples rows are expanded | `make bdd` |
 | Integration (testcontainers) | files tagged `//go:build integration` | 43 tests in 13 files | `make integration` |
 | Contract | `internal/adapters/inbound/http/contract_internal_test.go`, `internal/testing/repocontract`, golden JSON, `apis/*.yaml` linted by Spectral | see below | `make test`, CI `api-lint` |
 | Mutation | `.gremlins.yaml` over `internal/domain/...` | 4 packages | `make mutation` |
@@ -37,12 +37,23 @@ adapters** (the same use cases `cmd/api` wires over Postgres and Kafka), and fee
 use cases with the payloads the producers' contracts define. It does not go through HTTP or Kafka. The clock is fixed
 and request ids are sequential (`repl-0001`, ...).
 
+The `*_rules.feature` and `pack_derived_rules.feature` files pin the rules the context documentation states and no
+scenario pinned yet: one rule per scenario, boundaries as Outline rows. Their steps are in
+`features/features_rules_test.go` (one `registerRulesSteps` call) and `features/features_pack_test.go`. The runner
+executes **195 scenarios** (`go test ./features -run TestFeatures -count=1 -v`, the `N scenarios` line); the table counts
+definitions (`^[[:space:]]*Scenario` in `features/`, 130 in all, Outlines count once).
+
 | Feature | Scenarios | Covers |
 | --- | --- | --- |
 | `detection.feature` | 26 | raising at or below the minimum, URGENT, reserved stock, fullest reserve bin and partial fills, rounding to a multiple, `NO_SOURCE`, stale and redelivered levels, invalid levels, zone and decommissioned filters, pick-face listing, manual requests and their refusals, one open request per face |
+| `detection_rules.feature` | 22 | trigger boundary (`projected == min`), source-bin ranking by usable stock, reserve-bin and pick-face eligibility, sweep, pick-face view, manual requests |
 | `forward_map.feature` | 5 | the forward map only moves forward in time (stale, equal-instant no-op, replacement, late older map, per-site stamps) |
 | `lifecycle.feature` | 16 | completion by a matching relocation, partial relocations, duplicates, relocations that are not ours, cancellation by slot plan or operator, listing and reading requests |
+| `lifecycle_rules.feature` | 14 | request facts and versions, final states, relocation matching, request-id shape, slot-plan cancellations, policy removal scope |
+| `consumer_rules.feature` | 8 | invalid payloads, version ordering, redelivery of slot plans, layout validation |
+| `pack_derived_rules.feature` | 21 | ADR 0009 pack-derived multiple: CASE level in force, re-derive, stale, repair |
 | `policies.feature` | 10 | declare, change with `If-Match`, stale and missing versions, bounds, removal cancelling open requests, paging |
+| `read_rules.feature` | 8 | policy invariants, list filters, limit, cursor, state and status validation, last-page paging |
 
 ## Integration (testcontainers)
 
@@ -76,7 +87,7 @@ There is no schemathesis job. The REST and event contracts are guarded by:
 
 ## Mutation (gremlins)
 
-`.gremlins.yaml`: one worker, `timeout-coefficient` 30, thresholds `efficacy: 90` and `mutant-coverage: 90`. Gremlins fails
+`.gremlins.yaml`: one worker, `timeout-coefficient` 30, thresholds `efficacy: 99` and `mutant-coverage: 99`. Gremlins fails
 when the measured value is at or below the threshold, so the thresholds sit strictly below the measured 100 % / 100 % (no
 lived mutants) on the four domain packages `replenishment`, `policy`, `detection` and `shared`. `make mutation` runs
 those four, each on its own (the `mutation-fast` CI job, blocking on every PR). `make mutation-full` runs

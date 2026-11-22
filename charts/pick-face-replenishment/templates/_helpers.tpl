@@ -163,6 +163,15 @@ than one of them (tests/test_service_selectors.py).
 {{- include "pick-face-replenishment.fullname" . }}-a2a
 {{- end }}
 
+{{/* agents.colocate (warehouse-infra ADR 0012): "true" iff colocate, mcp and a2a are all on; else empty. */}}
+{{- define "pick-face-replenishment.agentsColocated" -}}
+{{- if and (.Values.agents | default dict).colocate .Values.mcp.enabled .Values.a2a.enabled }}true{{ end -}}
+{{- end }}
+
+{{- define "pick-face-replenishment.agentsFullname" -}}
+{{- printf "%s-agents" (include "pick-face-replenishment.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "pick-face-replenishment.analyticsProjectorFullname" -}}
 {{- include "pick-face-replenishment.fullname" . }}-projector
 {{- end }}
@@ -195,4 +204,37 @@ at render time, only while analytics is on, naming the value.
 {{- fail "analytics.enabled is true but neither analytics.url nor analytics.existingSecret is set: the projector and reports binaries exit at boot without ANALYTICS_DATABASE_URL (ADR 0008)." -}}
 {{- end -}}
 {{- $_ := required "analytics.enabled is true but analytics.consumerGroup is empty: the projector exits at boot without ANALYTICS_CONSUMER_GROUP, a stable Kafka group id (ADR 0008)." .Values.analytics.consumerGroup -}}
+{{- end -}}
+
+{{/*
+The OpenTelemetry env of one component that runs a Go binary (ADR 0013), the
+four variables cmd/<binary>/telemetry.go reads. Call it inside `env:` only when
+otel.enabled. Args: root context and the component suffix ("" for the api,
+"-mcp", "-a2a", "-projector", "-reports").
+*/}}
+{{- define "pick-face-replenishment.otelEnv" -}}
+{{- $root := .root -}}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ $root.Values.otel.endpoint | quote }}
+- name: OTEL_SERVICE_NAME
+  value: {{ printf "%s%s" $root.Values.otel.serviceName .suffix | quote }}
+- name: SERVICE_VERSION
+  value: {{ $root.Values.otel.serviceVersion | default $root.Values.image.tag | default $root.Chart.AppVersion | quote }}
+- name: ENVIRONMENT
+  value: {{ $root.Values.environment | quote }}
+{{- end -}}
+
+{{/*
+The four OpenTelemetry variables are chart-owned while otel.enabled: an extraEnv
+entry of that name would duplicate the rendered one and, in a Deployment, the
+last duplicate wins silently. Args: root context and the extraEnv list.
+*/}}
+{{- define "pick-face-replenishment.requireNoOtelEnv" -}}
+{{- if .root.Values.otel.enabled -}}
+{{- range .env -}}
+{{- if has (toString .name) (list "OTEL_EXPORTER_OTLP_ENDPOINT" "OTEL_SERVICE_NAME" "SERVICE_VERSION" "ENVIRONMENT") -}}
+{{- fail (printf "extraEnv sets %s — it is chart-owned while otel.enabled: set otel.endpoint, otel.serviceName, otel.serviceVersion or environment instead (ADR 0013)." .name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}

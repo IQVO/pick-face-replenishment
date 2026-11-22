@@ -112,15 +112,17 @@ no event of its own.
 ### Consumed types
 
 Byte-identical to each producer's catalogue (ADR 0003, ADR 0004). Every other
-type on these topics is ignored. Status: `BinStockLevelChanged` is pinned
-consumer-first (inventory-storage producer change P1 is pending);
-`StockRelocated` gains the reason `REPLENISHMENT` with producer change P4.
+type on these topics is ignored. The producer changes are built:
+inventory-storage publishes `BinStockLevelChanged` and the `REPLENISHMENT`
+reason of `StockRelocated`.
 
 | `type` | topic | producer | effect | group env | mode env |
 | --- | --- | --- | --- | --- | --- |
 | `com.warehouse.wms.inventory-storage.stock.BinStockLevelChanged` | `warehouse.inventory.events` | inventory-storage | `bin_stock_levels` copy; apply only when `version` is greater than the stored one | `INVENTORY_CONSUMER_GROUP` | `INVENTORY_MODE` |
 | `com.warehouse.wms.inventory-storage.stock.StockRelocated` | `warehouse.inventory.events` | inventory-storage | completes a request only when `reason` is `REPLENISHMENT` and `source_ref`, SKU and bins match | `INVENTORY_CONSUMER_GROUP` | `INVENTORY_MODE` |
 | `com.warehouse.wms.slotting-optimization.slotplan.SlotPlanApproved` | `warehouse.slotting-optimization.events` | slotting-optimization | replaces the site's `forward_assignments` wholesale; cancels requests with `ASSIGNMENT_CHANGED` | `SLOTTING_CONSUMER_GROUP` | `SLOTTING_MODE` |
+| `com.warehouse.wms.product-master.product.ProductPackLevelDeclared` | `warehouse.product-master.events` | product-master | keeps the pack-level copy and re-derives the multiple of the site's `PACK_DERIVED` policies (ADR 0009) | `PACK_LEVEL_CONSUMER_GROUP` | `PACK_LEVEL_MODE` |
+| `com.warehouse.wms.product-master.product.ProductPackLevelRetired` | `warehouse.product-master.events` | product-master | end-dates the pack level and re-derives the same policies (ADR 0009) | `PACK_LEVEL_CONSUMER_GROUP` | `PACK_LEVEL_MODE` |
 | `com.warehouse.wms.facility-layout.zone.ZoneRegistered` | `warehouse.facility.events` | facility-layout | zone code per zone | `LAYOUT_CONSUMER_GROUP` | `LAYOUT_MODE` |
 | `com.warehouse.wms.facility-layout.locationslot.LocationSlotRegistered` | `warehouse.facility.events` | facility-layout | `locations` copy | `LAYOUT_CONSUMER_GROUP` | `LAYOUT_MODE` |
 | `com.warehouse.wms.facility-layout.locationslot.LocationSlotDecommissioned` | `warehouse.facility.events` | facility-layout | removes a location | `LAYOUT_CONSUMER_GROUP` | `LAYOUT_MODE` |
@@ -130,9 +132,9 @@ in `RESERVE_ZONE_CODES` (default `RSV`).
 
 ## Consumer group id and environment
 
-Three consumers, each with a stable group id read from env, never a hardcoded
+Four consumers, each with a stable group id read from env, never a hardcoded
 string literal: `INVENTORY_CONSUMER_GROUP`, `SLOTTING_CONSUMER_GROUP`,
-`LAYOUT_CONSUMER_GROUP`.
+`LAYOUT_CONSUMER_GROUP`, `PACK_LEVEL_CONSUMER_GROUP`.
 `internal/architecture/fitness_test.go`'s
 TestKafkaConsumerGroupNeverHardcodedInline enforces this (a real incident:
 wes-work-planning's hardcoded group id let a locally-run e2e-tests process

@@ -172,8 +172,10 @@ func TestPostgresModeMigratesEnforcesIdempotencyAndWritesTheOutbox(t *testing.T)
 }
 
 // A 4xx or 5xx answer rolls its unit of work back: the rejected request leaves
-// no row behind, and the rejection itself replays.
-func TestPostgresRejectionLeavesNoEffectAndReplays(t *testing.T) {
+// no row behind. A RETRYABLE rejection (no-policy) is not stored, so the same
+// key answers it again as a first execution; a FINAL one replays (see
+// idempotency_replay_classes_integration_test.go).
+func TestPostgresRejectionLeavesNoEffectAndReleasesTheKey(t *testing.T) {
 	svc := bootPostgres(t)
 	srv := svc.srv
 	const raise = `{"siteId":"SITE-1","sku":"SKU-1"}` // no policy declared yet
@@ -187,9 +189,12 @@ func TestPostgresRejectionLeavesNoEffectAndReplays(t *testing.T) {
 	if n := svc.count("replenishment_requests"); n != 0 {
 		t.Fatalf("requests = %d after a rejection", n)
 	}
+	if n := svc.count("idempotency_keys"); n != 0 {
+		t.Fatalf("idempotency rows = %d after a RETRYABLE rejection, want none", n)
+	}
 	status2, body2, again := postWithKey(t, srv, "/replenishments", raise, "k-no-policy")
-	if status2 != status || body2 != body || again.Get("Idempotency-Replayed") != "true" {
-		t.Fatalf("rejection replay differs or is not marked: %d %s %v", status2, body2, again)
+	if status2 != status || !strings.Contains(body2, "/no-policy") || again.Get("Idempotency-Replayed") != "" {
+		t.Fatalf("the retry of a released rejection = %d %s %v, want a fresh no-policy", status2, body2, again)
 	}
 }
 

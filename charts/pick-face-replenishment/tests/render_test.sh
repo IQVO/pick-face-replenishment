@@ -119,14 +119,15 @@ grep -q 'OUTBOX_MAX_ATTEMPTS: "0"' <<<"$unlimited" || fail "config.outboxMaxAtte
 # --- chart vs binary ------------------------------------------------------------
 # Every env var cmd/api reads must be rendered into the Deployment when every
 # optional value is set. The names come from the binary's own os.Getenv /
-# getenv("...") literals and its *_CONSUMER_GROUP specs, so a new variable in
+# getenv("...") / env("...") literals (the last one is cmd/*/telemetry.go's
+# loadTelemetryEnv) and its *_CONSUMER_GROUP specs, so a new variable in
 # cmd/api fails this test until the chart renders it. MIGRATIONS_DATABASE_URL
 # is read by internal/adapters/outbound/postgres/migrate.go.
 binary_env() {
   local f
   for f in "$repo_dir"/cmd/api/*.go; do
     case "$f" in *_test.go) continue ;; esac
-    grep -hoE '[Gg]etenv\("[A-Z][A-Z0-9_]*"' "$f" || true
+    grep -hoE '([Gg]etenv|env)\("[A-Z][A-Z0-9_]*"' "$f" || true
     grep -hoE '"[A-Z_]+_CONSUMER_GROUP"' "$f" || true
   done | sed -E 's/.*"([A-Z0-9_]+)".*/\1/' | sort -u
 }
@@ -188,7 +189,7 @@ cmd_env() { # cmd_env <dir>...
   for d in "$@"; do
     for f in "$repo_dir/cmd/$d"/*.go; do
       case "$f" in *_test.go) continue ;; esac
-      grep -hoE '(os\.Getenv|getenv)\("[A-Z][A-Z0-9_]*"' "$f" || true
+      grep -hoE '(os\.Getenv|getenv|env)\("[A-Z][A-Z0-9_]*"' "$f" || true
     done
   done | sed -E 's/.*"([A-Z0-9_]+)".*/\1/' | sort -u
 }
@@ -299,6 +300,52 @@ grep -q 'app.kubernetes.io/component: frontend' <<<"$frontend_dep" || fail "the 
 grep -q 'app.kubernetes.io/component: frontend' <<<"$frontend_svc" || fail "the frontend Service was not rendered with frontend.enabled=true"
 grep -q 'type: ClusterIP' <<<"$frontend_svc" || fail "the frontend Service must stay ClusterIP"
 if grep -Eq 'name: (DATABASE_URL|KAFKA_BROKERS)$' <<<"$frontend_dep"; then fail "the frontend Deployment must not get database/Kafka env (it serves static bytes)"; fi
+# --- OpenTelemetry (ADR 0013): every component that runs a Go binary ---------------
+# The api, mcp, a2a, projector and reports Deployments render the four variables
+# cmd/*/telemetry.go reads; the frontend (nginx, no Go) renders none. The service
+# name is otel.serviceName for the api and <otel.serviceName>-<component> for the
+# others, the same defaults the binaries carry.
+otel_vars=(OTEL_EXPORTER_OTLP_ENDPOINT OTEL_SERVICE_NAME SERVICE_VERSION ENVIRONMENT)
+assert_otel() { # assert_otel <label> <rendered> <service name> <version>
+  local label="$1" rendered="$2" name="$3" version="$4" var
+  for var in "${otel_vars[@]}"; do
+    grep -q "name: $var\$" <<<"$rendered" || fail "the $label Deployment does not render $var"
+  done
+  [[ "$(env_value "$rendered" OTEL_EXPORTER_OTLP_ENDPOINT)" == "otel-collector.observability.svc.cluster.local:4317" ]] || fail "the $label OTEL_EXPORTER_OTLP_ENDPOINT is not the in-cluster Collector"
+  [[ "$(env_value "$rendered" OTEL_SERVICE_NAME)" == "$name" ]] || fail "the $label OTEL_SERVICE_NAME is not $name"
+  [[ "$(env_value "$rendered" SERVICE_VERSION)" == "$version" ]] || fail "the $label SERVICE_VERSION is not $version"
+  [[ "$(env_value "$rendered" ENVIRONMENT)" == "local" ]] || fail "the $label ENVIRONMENT is not local"
+}
+assert_otel "api" "$deployment" pick-face-replenishment local
+assert_otel "mcp" "$mcp_dep" pick-face-replenishment-mcp local
+assert_otel "a2a" "$a2a_dep" pick-face-replenishment-a2a local
+assert_otel "projector" "$proj" pick-face-replenishment-projector local
+assert_otel "reports" "$rep" pick-face-replenishment-reports local
+if grep -q 'OTEL_' <<<"$frontend_dep"; then fail "the frontend Deployment runs no Go binary and must not get OTEL env"; fi
+# serviceVersion is empty by default and falls back to image.tag (values.yaml sets
+# "local"), then to the chart appVersion when the tag is empty.
+untagged="$(render_only deployment.yaml "${base[@]}" --set image.tag=)"
+[[ "$(env_value "$untagged" SERVICE_VERSION)" == "0.1.0" ]] || fail "SERVICE_VERSION must fall back to the chart appVersion when image.tag is empty"
+tagged="$(render_only deployment.yaml "${base[@]}" --set image.tag=1.2.3)"
+[[ "$(env_value "$tagged" SERVICE_VERSION)" == "1.2.3" ]] || fail "SERVICE_VERSION must fall back to image.tag"
+pinned="$(render_only deployment.yaml "${base[@]}" --set image.tag=1.2.3 --set otel.serviceVersion=9.9.9 --set environment=staging)"
+[[ "$(env_value "$pinned" SERVICE_VERSION)" == "9.9.9" ]] || fail "otel.serviceVersion does not reach SERVICE_VERSION"
+[[ "$(env_value "$pinned" ENVIRONMENT)" == "staging" ]] || fail "environment does not reach ENVIRONMENT"
+renamed_otel="$(render_only mcp-deployment.yaml "${base[@]}" --set mcp.enabled=true --set otel.serviceName=pfr --set otel.endpoint=collector:4317)"
+[[ "$(env_value "$renamed_otel" OTEL_SERVICE_NAME)" == "pfr-mcp" ]] || fail "otel.serviceName does not reach the component service name"
+[[ "$(env_value "$renamed_otel" OTEL_EXPORTER_OTLP_ENDPOINT)" == "collector:4317" ]] || fail "otel.endpoint does not reach OTEL_EXPORTER_OTLP_ENDPOINT"
+# otel.enabled=false renders none of the four anywhere.
+no_otel="$(render "${base[@]}" "${everything[@]}" --set otel.enabled=false)"
+if grep -Eq 'name: (OTEL_[A-Z_]+|SERVICE_VERSION|ENVIRONMENT)$' <<<"$no_otel"; then fail "otel.enabled=false must render no OTEL/SERVICE_VERSION/ENVIRONMENT env"; fi
+# The chart owns those names: no extraEnv list may override them.
+for var in "${otel_vars[@]}"; do
+  expect_refusal "$var through extraEnv" "$var" "${base[@]}" --set "extraEnv[0].name=$var" --set 'extraEnv[0].value=x'
+  expect_refusal "$var through mcp.extraEnv" "$var" "${base[@]}" --set mcp.enabled=true --set "mcp.extraEnv[0].name=$var" --set 'mcp.extraEnv[0].value=x'
+  expect_refusal "$var through a2a.extraEnv" "$var" "${base[@]}" --set a2a.enabled=true --set "a2a.extraEnv[0].name=$var" --set 'a2a.extraEnv[0].value=x'
+  expect_refusal "$var through analytics.projector.extraEnv" "$var" "${analytics[@]}" --set "analytics.projector.extraEnv[0].name=$var" --set 'analytics.projector.extraEnv[0].value=x'
+  expect_refusal "$var through analytics.reports.extraEnv" "$var" "${analytics[@]}" --set "analytics.reports.extraEnv[0].name=$var" --set 'analytics.reports.extraEnv[0].value=x'
+done
+
 together="$(render "${base[@]}" --set mcp.enabled=true --set a2a.enabled=true --set analytics.enabled=true --set analytics.url=postgres://u@h/a --set frontend.enabled=true)"
 if grep -E 'kind: (Ingress|HTTPRoute)' <<<"$together" | grep -q frontend; then fail "frontend routing must not live in this chart (the Nginx web gateway owns it)"; fi
 for component in api mcp a2a analytics-projector analytics-reports frontend; do

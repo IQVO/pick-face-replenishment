@@ -40,7 +40,7 @@ func TestBuildDepsBadDatabaseFailsBoot(t *testing.T) {
 // use cases are unwired for the tools the test does not call.
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(newRouter(inboundmcp.Handler(inboundmcp.NewServer(inboundmcp.Deps{}))))
+	srv := httptest.NewServer(newRouter(inboundmcp.Handler(inboundmcp.NewServer(inboundmcp.Deps{})), "test"))
 	t.Cleanup(srv.Close)
 	return srv
 }

@@ -116,3 +116,9 @@ Solid edges are verified contracts; dashed edges are planned and not built.
   `NO_POLICY` instead of guessing.
 - Nothing moves on the floor until the planned execution chain exists; until
   then requests open and can be cancelled but not completed.
+
+## Addendum 2026-11-13: current state
+
+The edges this ADR marks PLANNED are built on `origin/develop` of the sibling repositories: wes-work-planning consumes `ReplenishmentRequested` and plans one `REPLENISH` work unit (`internal/adapters/inbound/kafka/replenishment_consumer.go`, its ADR 0042); fulfillment-execution creates and completes the `REPLENISH` task (its ADR 0050); inventory-storage applies the completed task as a relocation with reason `REPLENISHMENT` (`internal/application/usecases/apply_replenish_task.go`, its ADR 0041) and publishes `BinStockLevelChanged` (its ADR 0040, producer change P1). The completion path therefore exists in code; whether it runs in a cluster is not stated here.
+"No edge to `product-master` in v1" no longer holds: this service consumes `ProductPackLevelDeclared` and `ProductPackLevelRetired` from `warehouse.product-master.events` (`internal/adapters/inbound/kafka/productmaster_consumer.go`, ADR 0009, PR #26).
+The Status line and the text above are unchanged.

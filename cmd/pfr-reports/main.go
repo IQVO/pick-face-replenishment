@@ -27,6 +27,7 @@ import (
 
 	inboundhttp "github.com/claudioed/pick-face-replenishment/internal/adapters/inbound/http"
 	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/analyticsstore"
+	"github.com/claudioed/pick-face-replenishment/internal/adapters/outbound/telemetry"
 	"github.com/claudioed/pick-face-replenishment/internal/bootretry"
 )
 
@@ -44,6 +45,13 @@ func main() {
 func run() error {
 	logger := newLogger(getenv("LOG_LEVEL", "info"))
 	slog.SetDefault(logger)
+
+	telemetryCfg := loadTelemetryEnv(os.Getenv)
+	flushTelemetry, err := startTelemetry(logger, telemetryCfg)
+	if err != nil {
+		return err
+	}
+	defer flushTelemetry()
 
 	url := os.Getenv("ANALYTICS_DATABASE_URL")
 	if url == "" {
@@ -65,7 +73,7 @@ func run() error {
 	httpAddr := getenv("HTTP_ADDR", ":8092")
 	srv := &http.Server{
 		Addr:              httpAddr,
-		Handler:           inboundhttp.NewReportsRouter(&inboundhttp.ReportsServer{Reader: analyticsstore.NewReader(pool)}),
+		Handler:           inboundhttp.NewReportsRouter(&inboundhttp.ReportsServer{Reader: analyticsstore.NewReader(pool), ServiceName: telemetryCfg.serviceName}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	serveErr := make(chan error, 1)
@@ -101,7 +109,7 @@ func newLogger(level string) *slog.Logger {
 	default:
 		lvl = slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+	return slog.New(telemetry.WithTraceContext(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
 }
 
 func getenv(key, fallback string) string {

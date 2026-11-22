@@ -79,6 +79,17 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// After the config check: a configuration error must fail fast, never wait
+	// on the telemetry flush.
+	telemetryCfg := loadTelemetryEnv(os.Getenv)
+	flushTelemetry, err := startTelemetry(logger, telemetryCfg)
+	if err != nil {
+		return err
+	}
+	// Deferred FIRST so it runs LAST: the final export happens after the
+	// server and the workers have stopped.
+	defer flushTelemetry()
 	// closeAdapters (pool.Close) is deferred FIRST so it runs LAST, after the
 	// HTTP drain and the relay have stopped.
 	ad, closeAdapters, err := buildAdapters(ctx, cfg.databaseURL, cfg.migrationsURL, logger)
@@ -90,9 +101,11 @@ func run(ctx context.Context) error {
 
 	readiness := buildReadiness(ad, outboundkafka.NewBrokerCheck(cfg.brokers).Check)
 	zones := zoneConfigFromEnv()
+	apiServer := buildServer(ad, zones, readiness)
+	apiServer.ServiceName = telemetryCfg.serviceName
 	httpServer := &http.Server{
 		Addr:              getenv("HTTP_ADDR", ":8080"),
-		Handler:           inboundhttp.NewRouter(buildServer(ad, zones, readiness)),
+		Handler:           inboundhttp.NewRouter(apiServer),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	consumers, stopConsumers := startConsumers(ad, zones, cfg.brokers, cfg.consumers, logger)

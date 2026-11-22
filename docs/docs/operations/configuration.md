@@ -9,7 +9,7 @@ sidebar_position: 2
 
 `cmd/api` is the main binary; `cmd/mcp`, `cmd/a2a`, `cmd/pfr-projector` and `cmd/pfr-reports` are separate deployables with their own,
 smaller environment (sections below). Everything is read from the environment at boot by `cmd/api/main.go`, `config.go`,
-`consumers.go`, `relay.go`, `adapters.go` and `internal/adapters/outbound/postgres/migrate.go`; there are no flags and
+`consumers.go`, `relay.go`, `adapters.go`, `telemetry.go` and `internal/adapters/outbound/postgres/migrate.go`; there are no flags and
 no config file. Test-only variables do not exist in the non-test code. Variables marked **yes** in *Required* have no
 default and no fallback.
 
@@ -33,6 +33,10 @@ default and no fallback.
 | `LAYOUT_CONSUMER_GROUP` | none | **yes** | Group id of the layout consumer. | `cmd/api/consumers.go` |
 | `SHUTDOWN_DRAIN_DELAY` | `5s` | no | Go duration to wait after `/readyz` flips to 503 and before the listener closes. `0` disables the wait; negative or malformed logs a WARN and uses `5s`. | `cmd/api/config.go` |
 | `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn` (or `warning`), `error`, case-insensitive; anything else is `info`. Logs are JSON on stdout. | `cmd/api/config.go` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint, `host:port` or URL. | `cmd/api/telemetry.go` |
+| `OTEL_SERVICE_NAME` | `pick-face-replenishment` | no | `service.name` of the spans and metrics. | `cmd/api/telemetry.go` |
+| `SERVICE_VERSION` | `dev` | no | `service.version`. | `cmd/api/telemetry.go` |
+| `ENVIRONMENT` | `local` | no | `deployment.environment.name`, read by `telemetry.Setup`. | `internal/adapters/outbound/telemetry/telemetry.go` |
 
 ### Mandatory configuration
 
@@ -70,6 +74,10 @@ Read-only MCP server (ADR 0007). Reads no Kafka variable, builds no outbox, and 
 | `MCP_ADDR` | `:8090` | no | Listen address; MCP is served at `/mcp` (and `/`), `GET /healthz` for probes. |
 | `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES` | `FWD`, `RSV` | no | Same meaning as for `cmd/api`. |
 | `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`, `error`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint, `host:port` or URL. | `cmd/mcp/telemetry.go` |
+| `OTEL_SERVICE_NAME` | `pick-face-replenishment-mcp` | no | `service.name` of the spans and metrics. | `cmd/mcp/telemetry.go` |
+| `SERVICE_VERSION` | `dev` | no | `service.version`. | `cmd/mcp/telemetry.go` |
+| `ENVIRONMENT` | `local` | no | `deployment.environment.name`, read by `telemetry.Setup`. | `internal/adapters/outbound/telemetry/telemetry.go` |
 
 ## `cmd/a2a`
 
@@ -84,6 +92,10 @@ Read-only A2A (Agent2Agent) agent (ADR 0010). Like `cmd/mcp` it reads no Kafka v
 | `A2A_ADDR` | `:8093` | no | Listen address; JSON-RPC is served at `/` and `/a2a`, the Agent Card at `/.well-known/agent-card.json`, `GET /healthz` for probes. |
 | `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES` | `FWD`, `RSV` | no | Same meaning as for `cmd/api`. |
 | `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`, `error`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint, `host:port` or URL. | `cmd/a2a/telemetry.go` |
+| `OTEL_SERVICE_NAME` | `pick-face-replenishment-a2a` | no | `service.name` of the spans and metrics. | `cmd/a2a/telemetry.go` |
+| `SERVICE_VERSION` | `dev` | no | `service.version`. | `cmd/a2a/telemetry.go` |
+| `ENVIRONMENT` | `local` | no | `deployment.environment.name`, read by `telemetry.Setup`. | `internal/adapters/outbound/telemetry/telemetry.go` |
 
 ## `cmd/pfr-projector`
 
@@ -96,6 +108,10 @@ The only writer of the analytical database (ADR 0008). It never opens the OLTP d
 | `ANALYTICS_CONSUMER_GROUP` | none | **yes** | Stable consumer group of the projector; a brand-new group re-reads the topic from the earliest offset (the backfill). |
 | `ADMIN_ADDR` | `:8091` | no | `/healthz` and `/readyz` (503 once shutdown begins). |
 | `LOG_LEVEL` | `info` | no | As above. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint, `host:port` or URL. | `cmd/pfr-projector/telemetry.go` |
+| `OTEL_SERVICE_NAME` | `pick-face-replenishment-projector` | no | `service.name` of the spans and metrics. | `cmd/pfr-projector/telemetry.go` |
+| `SERVICE_VERSION` | `dev` | no | `service.version`. | `cmd/pfr-projector/telemetry.go` |
+| `ENVIRONMENT` | `local` | no | `deployment.environment.name`, read by `telemetry.Setup`. | `internal/adapters/outbound/telemetry/telemetry.go` |
 
 A missing required variable is a boot error naming all of them.
 
@@ -108,6 +124,10 @@ Read-only reports (`GET /reports/replenishment-funnel`, `GET /reports/freshness`
 | `ANALYTICS_DATABASE_URL` | none | **yes** | DSN of the analytical Postgres; opened through a read-only pool. |
 | `HTTP_ADDR` | `:8092` | no | Listen address; `GET /healthz` for probes. |
 | `LOG_LEVEL` | `info` | no | As above. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint, `host:port` or URL. | `cmd/pfr-reports/telemetry.go` |
+| `OTEL_SERVICE_NAME` | `pick-face-replenishment-reports` | no | `service.name` of the spans and metrics. | `cmd/pfr-reports/telemetry.go` |
+| `SERVICE_VERSION` | `dev` | no | `service.version`. | `cmd/pfr-reports/telemetry.go` |
+| `ENVIRONMENT` | `local` | no | `deployment.environment.name`, read by `telemetry.Setup`. | `internal/adapters/outbound/telemetry/telemetry.go` |
 
 ## `web/`
 
@@ -151,6 +171,11 @@ fails when `cmd/api` reads a variable the chart does not render.
 | `config.outboxRelayInterval`, `config.outboxMaxAttempts` | `OUTBOX_RELAY_INTERVAL`, `OUTBOX_MAX_ATTEMPTS` | no | not rendered (binary: `1s`), `20` |
 | `config.forwardZoneCodes`, `config.reserveZoneCodes` | `FORWARD_ZONE_CODES`, `RESERVE_ZONE_CODES` | no | not rendered (binary: `FWD`, `RSV`) |
 | `config.shutdownDrainDelay` | `SHUTDOWN_DRAIN_DELAY` | no | not rendered (binary: `5s`) |
+| `otel.enabled` | *(gates the four rows below)* | no | `true`; `false` renders none of them and the binaries fall back to their own defaults |
+| `otel.endpoint` | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | `otel-collector.observability.svc.cluster.local:4317` |
+| `otel.serviceName` | `OTEL_SERVICE_NAME` | no | `pick-face-replenishment` for the api; `<serviceName>-mcp`, `-a2a`, `-projector`, `-reports` for the other components |
+| `otel.serviceVersion` | `SERVICE_VERSION` | no | empty: falls back to `image.tag`, then the chart `appVersion` |
+| `environment` | `ENVIRONMENT` | no | `local` |
 
 The DSNs live in a Secret only; everything else is also mounted from the chart ConfigMap with `envFrom`. Probes:
 `startupProbe` and `livenessProbe` on `/healthz`, `readinessProbe` on `/readyz` (which checks Postgres and that a Kafka broker answers, not topics, so a

@@ -121,6 +121,11 @@ const sidebars: SidebarsConfig = {
           label: '0012 Agent authority levels and complete MCP surface',
           href: '/docs/adr/0012-agent-authority-levels-and-complete-mcp-surface',
         },
+        {
+          type: 'link',
+          label: '0013 Adopt the fleet observability standard',
+          href: '/docs/adr/0013-adopt-the-fleet-observability-standard',
+        },
       ],
     },
   ],

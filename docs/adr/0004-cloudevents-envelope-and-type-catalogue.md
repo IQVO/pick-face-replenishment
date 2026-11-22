@@ -104,3 +104,7 @@ published table, read from the analytics stream; `dataschema`
 Its dead-letter topic is `warehouse.pick-face-replenishment.analytics.dlq`. The
 analytics stream is not an integration contract: no other context consumes it.
 
+
+## Addendum 2026-11-13: current state
+
+The edge to wes-work-planning is no longer planned: wes-work-planning consumes `ReplenishmentRequested` and `ReplenishmentCancelled` (`internal/adapters/inbound/kafka/replenishment_consumer.go`, its ADR 0042). inventory-storage publishes `BinStockLevelChanged` (its ADR 0040, producer change P1) and sets reason `REPLENISHMENT` on `StockRelocated` for a completed `REPLENISH` task (its ADR 0041, producer change P4). The published catalogue above is unchanged.

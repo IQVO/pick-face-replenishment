@@ -740,8 +740,16 @@ components:
         the same request (method, path and body) returns the original response
         with the header `Idempotency-Replayed: true`, while the same key with a
         different request is 409 `idempotency-key-reused`. A key longer than 128
-        characters is also 400 `idempotency-key-required`. A 4xx answer is stored
-        and replayed like a success; a 5xx is never stored.
+        characters is also 400 `idempotency-key-required`. A 2xx answer is
+        stored and replayed. Of the refusals, every problem type has one
+        replay class (ADR 0014): a FINAL one (the request-shaped 400s, 404
+        `replenishment-not-found`, 409 `replenishment-not-open`) is stored and
+        replayed like a success; a RETRYABLE one (`concurrent-modification`,
+        `replenishment-already-open`, `no-forward-assignment`, `no-policy`,
+        `no-source-stock`, `nothing-to-replenish`, `quantity-exceeds-max`) is
+        not stored and its key is released, so the same key may be sent again
+        once the cause changed, and a different body under it is a new request;
+        a 5xx is never stored.
       schema:
         type: string
         minLength: 1

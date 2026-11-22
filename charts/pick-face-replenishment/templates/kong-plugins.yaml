@@ -59,6 +59,9 @@ config:
     - If-Match
   exposed_headers:
     - Content-Length
+    - ETag
+    - Idempotency-Replayed
+    - Mcp-Session-Id
   credentials: false
   max_age: 3600
   preflight_continue: false

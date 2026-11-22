@@ -3,6 +3,7 @@
 {{- include "pick-face-replenishment.requireConsumerGroups" . -}}
 {{- include "pick-face-replenishment.requireGracePeriod" . -}}
 {{- include "pick-face-replenishment.requireNoModeEnv" . -}}
+{{- include "pick-face-replenishment.requireNoOtelEnv" (dict "root" . "env" .Values.extraEnv) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -120,6 +121,9 @@ spec:
             {{- end }}
             - name: KAFKA_BROKERS
               value: {{ .Values.kafka.brokers | quote }}
+            {{- if .Values.otel.enabled }}
+            {{- include "pick-face-replenishment.otelEnv" (dict "root" . "suffix" "") | nindent 12 }}
+            {{- end }}
             {{- range .Values.extraEnv }}
             - {{ toYaml . | nindent 14 | trim }}
             {{- end }}

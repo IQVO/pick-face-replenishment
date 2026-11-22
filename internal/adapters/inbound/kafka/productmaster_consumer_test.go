@@ -75,7 +75,7 @@ func TestProductMaster_ReplayedEventIsAppliedOnce(t *testing.T) {
 func TestProductMaster_AMalformedOrInvalidPayloadIsDeterministicallySkipped(t *testing.T) {
 	w := newWorld()
 	c := w.productMasterConsumer()
-	handle(t, c, productMasterMsg("e1", typePackDeclared, `{"sku":"SKU-1","level":"CASE","gtin":"`+gtinCase12+`","unitsPerPack":0,"effectiveFrom":"2026-09-01T00:00:00Z","version":1}`))
+	handle(t, c, productMasterMsg("e1", typePackDeclared, `{"sku":"SKU-1","level":"CASE","gtin":"`+gtinCase12+`","units_per_pack":0,"effective_from":"2026-09-01T00:00:00Z","version":1}`))
 	if _, ok, _ := w.levels.Get(bg, "SKU-1", packlevel.Case); ok {
 		t.Fatal("a pack of 0 must not be stored")
 	}

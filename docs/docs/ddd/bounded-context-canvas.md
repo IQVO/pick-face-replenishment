@@ -23,19 +23,21 @@ flowchart LR
         inv["inventory-storage"]:::ctx
         slot["slotting-optimization"]:::ctx
         lay["facility-layout"]:::ctx
+        pm["product-master"]:::ctx
     end
     subgraph BC["pick-face-replenishment - Supporting - WMS tier"]
-        core["policy, request, detector<br/>local copies of levels, forward map, layout"]:::bc
+        core["policy, request, detector<br/>local copies of levels, forward map, layout, pack levels"]:::bc
     end
     subgraph OUT["Outbound"]
         wp["wes-work-planning (opt-in consumer)"]:::ctx
-        ana["analytics topic (no consumer)"]:::planned
+        ana["analytics topic (read by cmd/pfr-projector)"]:::ctx
         ops["ops agent, console (later phase)"]:::planned
     end
     planner -->|"REST: policies, requests, evaluate"| core
     inv -->|"Kafka: BinStockLevelChanged, StockRelocated"| core
     slot -->|"Kafka: SlotPlanApproved"| core
     lay -->|"Kafka: Zone and LocationSlot events"| core
+    pm -->|"Kafka: ProductPackLevelDeclared, Retired"| core
     core -->|"Kafka: ReplenishmentRequested, Completed, Cancelled"| wp
     core -->|"Kafka: request events plus PolicyDeclared"| ana
     core -->|"REST reads"| ops
@@ -81,6 +83,8 @@ empty forward pick face, fewer short picks). Evolution: custom-built (genesis).
 | `com.warehouse.wms.facility-layout.zone.ZoneRegistered` | event | facility-layout | Kafka `warehouse.facility.events` | zone code per zone |
 | `com.warehouse.wms.facility-layout.locationslot.LocationSlotRegistered` | event | facility-layout | Kafka `warehouse.facility.events` | location, its zone and role |
 | `com.warehouse.wms.facility-layout.locationslot.LocationSlotDecommissioned` | event | facility-layout | Kafka `warehouse.facility.events` | location retired |
+| `com.warehouse.wms.product-master.product.ProductPackLevelDeclared` | event | product-master | Kafka `warehouse.product-master.events` | pack level of a SKU (units per pack); a `CASE` level re-derives `PACK_DERIVED` policies (ADR 0009) |
+| `com.warehouse.wms.product-master.product.ProductPackLevelRetired` | event | product-master | Kafka `warehouse.product-master.events` | pack level retired; a `CASE` level re-derives or flags `stale` the `PACK_DERIVED` policies (ADR 0009) |
 
 ## Outbound communication
 
@@ -122,7 +126,7 @@ multiple), request, projected level, priority, source bin policy, usable stock.
 
 ## Verification metrics
 
-Domain coverage gate 90 %; mutation efficacy and mutant coverage thresholds 90 % (measured 100 %); 57 BDD scenarios;
+Domain coverage gate 90 %; mutation efficacy and mutant coverage thresholds 99 % (measured 100 %); 57 BDD scenarios;
 golden bytes per published type; fitness tests ([Testing](/docs/development/testing)). The service exports no runtime
 metrics ([Observability](/docs/operations/observability)).
 

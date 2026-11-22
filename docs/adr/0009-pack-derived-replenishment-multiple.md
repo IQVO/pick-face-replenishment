@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-10-24). Additive: a policy declared the way it is today (source `DECLARED`)
+Accepted (2026-11-14; first Proposed 2026-10-24, built since: see the Addendum). Additive: a policy declared the way it is today (source `DECLARED`)
 behaves exactly as before. Part of the mastercase / GTIN adoption
 (`.hermes/plans/mastercase-briefs/contracts.md` sections 0, 1, 8 of the warehouse-systems
 workspace).
@@ -34,3 +34,9 @@ known data, and a hand-typed multiple can drift from the real case.
 
 - The chart renders `PACK_LEVEL_CONSUMER_GROUP` (required); warehouse-infra needs no new topic.
 - `DECLARED` policies never change when pack levels change.
+
+## Addendum 2026-11-13: current state
+
+The decision is implemented on `origin/develop` (PR #26, commits `ca1fa6f` and `9b102b3`): `internal/application/usecases/pack_level.go` (`ApplyPackLevelDeclared`, `ApplyPackLevelRetired`, `PackDerivation`), `internal/adapters/inbound/kafka/productmaster_consumer.go` (consumer of `warehouse.product-master.events`), `migrations/0003_pack_derived_policies.up.sql` and `cmd/api/consumers.go` (`PACK_LEVEL_MODE`, `PACK_LEVEL_CONSUMER_GROUP`). `apis/asyncapi.yaml` declares the two consumed types under `applyProductMasterPackLevel`.
+`warehouse-infra` `helm-values/pick-face-replenishment.yaml` sets `packLevelConsumerGroup: pick-face-replenishment-pack-levels`.
+The Status line above was flipped to Accepted on 2026-11-14; the body is unchanged.

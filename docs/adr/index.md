@@ -22,7 +22,9 @@ section.
 | [0006](/docs/adr/0006-postgres-and-kafka-are-the-only-runtime) | Postgres and Kafka are the only runtime | Accepted (2026-10-17) |
 | [0007](/docs/adr/0007-mcp-server-adoption) | MCP server adoption (read-only, unauthenticated, additive) | Accepted (2026-10-18) |
 | [0008](/docs/adr/0008-analytics-read-side) | Analytics read side: an analytics stream, a projector and a replenishment funnel report over a separate analytical database | Accepted (2026-10-18) |
-| [0009](/docs/adr/0009-pack-derived-replenishment-multiple) | Pack-derived replenishment multiple | Proposed (2026-10-24) |
+| [0009](/docs/adr/0009-pack-derived-replenishment-multiple) | Pack-derived replenishment multiple | Accepted (2026-11-14) |
 | [0010](/docs/adr/0010-a2a-inbound-adapter) | A2A inbound adapter (read-only, unauthenticated, additive) | Accepted (2026-10-29) |
 | [0011](/docs/adr/0011-adopt-the-fleet-rest-api-guideline) | Adopt the fleet REST API guideline (noun routes, idempotent POST/PATCH with `Idempotency-Replayed`, 409 on key reuse, keyset paging) | Accepted (2026-10-31) |
 | [0012](/docs/adr/0012-agent-authority-levels-and-complete-mcp-surface) | Agent authority levels (every MCP tool L1, every A2A skill `authority:L1`) and the complete MCP surface (stateless handler, one policy resource, one operator-SOP prompt) | Accepted (2026-11-02) |
+| [0013](/docs/adr/0013-adopt-the-fleet-observability-standard) | Adopt the fleet observability standard (OTLP `telemetry.Setup` in every binary, otelchi request metrics, trace-correlated logs, one Tier 2 counter, chart `otel.*`) | Accepted (2026-11-14) |
+| [0014](/docs/adr/0014-every-problem-type-has-a-replay-class) | Every problem type has a replay class; a retryable refusal is not stored (FINAL stored and replayed, RETRYABLE released, OUTCOME impossible: a refusal rolls the whole unit of work back) | Accepted (2026-11-20). Supersedes one sentence of ADR 0011 item 2 and the "(2xx and 4xx only)" of ADR 0005's `idempotency_keys` row. |

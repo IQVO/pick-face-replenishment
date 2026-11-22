@@ -7,40 +7,59 @@ sidebar_position: 3
 
 # Observability
 
-The service today has **structured logs and two health endpoints, and nothing else**. There is no metrics endpoint, no
-OpenTelemetry SDK, no OTLP exporter and no tracing setup in `cmd/api`: `grep` for `otel`, `prometheus` and `/metrics`
-over `cmd/` and `internal/` finds only the trace-context helper described below. This page says what exists and how to
-watch the service with it.
+The service exports **metrics and traces over OTLP/gRPC** to the OpenTelemetry Collector and writes **trace-correlated
+JSON logs**, following the fleet observability standard ([ADR 0013](/docs/adr/0013-adopt-the-fleet-observability-standard)).
+It serves no `/metrics` endpoint: the Collector re-publishes the metrics for Prometheus. All five binaries
+(`cmd/api`, `cmd/mcp`, `cmd/a2a`, `cmd/pfr-projector`, `cmd/pfr-reports`) start `telemetry.Setup` from their own
+`telemetry.go`; export is lazy and non-blocking, so an unreachable Collector costs telemetry and never availability.
+
+## Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | Collector OTLP/gRPC endpoint, `host:port` or a URL. Chart: `otel.endpoint`, default `otel-collector.observability.svc.cluster.local:4317` |
+| `OTEL_SERVICE_NAME` | `pick-face-replenishment` (api), `-mcp`, `-a2a`, `-projector`, `-reports` | `service.name` of the spans and metrics. Chart: `otel.serviceName` for the api, `<otel.serviceName>-<component>` for the others |
+| `SERVICE_VERSION` | `dev` | `service.version`. Chart: `otel.serviceVersion`, empty falls back to `image.tag`, then the chart `appVersion` |
+| `ENVIRONMENT` | `local` | `deployment.environment.name`. Chart: `environment` |
+
+The chart renders these four into every Deployment that runs a Go binary while `otel.enabled` is true (the default) and
+refuses them in any `extraEnv` list. Integration tests that boot a binary set `OTEL_SDK_DISABLED=true`.
 
 ## Metrics
 
-| Item | State |
-| --- | --- |
-| `/metrics` endpoint | not served (the router has only `/healthz`, `/readyz` and the 10 API operations) |
-| OTel metric instruments | none: the service creates no meter, counter or histogram |
-| OTLP exporter variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, ...) | not read: the SDK is not wired |
-| Go runtime metrics, HTTP server duration | not emitted |
+| Instrument | Type, unit | Attributes | Emitted by |
+| --- | --- | --- | --- |
+| `http.server.request.duration` (`http_server_request_duration_seconds`) | histogram, `s` | `http.route` is the chi route pattern (asserted by the router tests); the other attributes are `otelchimetric`'s defaults | `cmd/api`, `cmd/pfr-reports`, `cmd/mcp`, `cmd/a2a` |
+| Go runtime instruments of `go.opentelemetry.io/contrib/instrumentation/runtime` | gauges and counters | | all five binaries |
+| `replenishment.request.raised` (`replenishment_request_raised_total`) | counter, `{request}` | `outcome` (`created`, `failed`); `reason` on failure: the problem slug, e.g. `replenishment-already-open`, `concurrent-modification`, `quantity-exceeds-max`, `no-source-stock`, `invalid-quantity`, `internal-error` | `cmd/api` |
 
-Consequence: there are no service metrics to scrape from `cmd/api`. `warehouse-infra` (`origin/develop`) does ship a Grafana
-dashboard (`terraform/dashboards/contexts/pick-face-replenishment.json`) and Kong-based alert rules (5xx ratio, availability
-and latency SLO burn, container restarts), but they read Kong's `kong_http_requests_total` and latency histograms and
-kube restarts; the panels that query `http_server_request_duration_seconds` or the Go runtime metrics stay empty for `cmd/api`
-(it emits neither) and fill only for the analytics binaries once they are deployed. The state of the service has to be read
-from logs, the database and Kafka itself (see [Suggested alerts](#suggested-alerts)).
+`replenishment.request.raised` counts every attempt to plan a request, from the evaluation sweep, the event consumers and
+the manual request alike (all three go through one function of the use-case layer). It does not count refusals that happen
+before a request is planned (`no-policy`, `nothing-to-replenish`, `no-forward-assignment`) or detections that raise
+nothing, and the count is taken inside the unit of work, so a failed final commit is not told apart from `created`.
+
+`warehouse-infra` ships a Grafana dashboard (`terraform/dashboards/contexts/pick-face-replenishment.json`) and Kong-based
+alert rules (5xx ratio, availability and latency SLO burn, container restarts). This change does not touch them; whether
+their `http_server_request_duration_seconds` and Go runtime panels now fill was not checked in a cluster.
 
 ## Traces
 
-No spans are created. The only OpenTelemetry code is `traceHeaders` in
-`internal/adapters/outbound/postgres/outbox_repository.go`: it asks the global propagator for the W3C trace context of
-the request and appends `traceparent` (and `tracestate`, `baggage` when present) to the headers stored with each outbox
-row, so a consumer could continue the trace. The composition root installs no propagator, so the global one is the
-no-op default and **no trace headers are stored today**; every outbox row carries only the CloudEvents `content-type`
-header. The code comment that says "once the composition root installs it" describes a wiring that has not happened.
+`cmd/api`, `cmd/pfr-reports`, `cmd/mcp` and `cmd/a2a` create one server span per request (`otelchi`), named after the chi
+route pattern, so there is one span name per route and not one per site id. `cmd/pfr-projector` has no HTTP API and
+creates no spans of its own.
+
+The outbox stores a `traceparent` (and `tracestate`, `baggage` when present) in the `headers` of each row that is written
+while the request context carries a span (`traceHeaders` in `internal/adapters/outbound/postgres/outbox_repository.go`),
+and the relay copies it onto the Kafka message. `telemetry.Setup` installs the W3C propagator that code reads, so the
+headers are stored for writes that arrive over the REST API. Rows raised by an event consumer carry no `traceparent`: the
+Kafka consumers do not extract a trace context from the incoming message (not evidenced in
+`internal/adapters/inbound/kafka`).
 
 ## Logs
 
 JSON, one object per line on stdout, via `log/slog` (`time`, `level`, `msg` plus the attributes below). `LOG_LEVEL`
-selects the threshold. There is **no access log**: successful requests are not logged; only failures are.
+selects the threshold. A record written with a request or span context also carries `trace_id` and `span_id`, so a log
+line can be joined to its trace; records written without one (boot, shutdown, workers) are unchanged.
 
 ### Boot and lifecycle
 
@@ -84,11 +103,13 @@ selects the threshold. There is **no access log**: successful requests are not l
 
 | Level | `msg` | Attributes | Meaning |
 | --- | --- | --- | --- |
+| INFO, WARN (4xx), ERROR (5xx) | `http request` | `method`, `route` (the chi pattern), `status`, `duration_ms`, `bytes`, `request_id`, plus `trace_id`, `span_id` | one record per request on `cmd/api` and `cmd/pfr-reports`; `/healthz` and `/readyz` are not logged |
 | ERROR | `request failed` | `error`, `method`, `path` | an unmapped error became a 500 `internal-error` (the response never carries the internal message) |
 | ERROR | `handler panicked` | `panic`, `method`, `path` | a recovered panic became a 500 |
 | WARN | `idempotency: answer not stored` | `error` | a 4xx answer could not be stored for replay; it was still sent |
 
-Domain rejections (4xx) are not logged at all; they are visible only in the response.
+A domain rejection (4xx) is logged only by the `http request` record at WARN (status and route, not the reason); the
+reason is in the response body.
 
 ## Health endpoints
 
@@ -101,8 +122,10 @@ Domain rejections (4xx) are not logged at all; they are visible only in the resp
 
 ## Suggested alerts
 
-`warehouse-infra` has only the Kong-level alerts named above (5xx ratio, SLO burn, restarts). Because `cmd/api` exports no metrics, these are checks against its data stores and
-logs rather than PromQL:
+`warehouse-infra` has only the Kong-level alerts named above (5xx ratio, SLO burn, restarts). Beyond the instruments above, the backlog and lag signals
+below are not exported as metrics, so they are checks against the data stores and logs rather than PromQL (the
+`replenishment_request_raised_total{outcome="failed"}` ratio and the request-duration histogram are PromQL signals once a
+Collector scrape exists):
 
 | Signal | Query or source | Why |
 | --- | --- | --- |
@@ -115,5 +138,5 @@ logs rather than PromQL:
 | Boot loops | repeated `service exited with error` / `retrying` | database unreachable or a bad migration |
 | Open-request age | `SELECT min(requested_at) FROM replenishment_requests WHERE state = 'Requested'` | requests that never complete (the chain is built end to end but not live; wes-work-planning plans nothing unless `REPLENISHMENT_MODE=kafka` is set there and the `REPLENISH` path is seeded, see [Integration](/docs/ecosystem/integration)) |
 
-Adding real instruments (request duration, outbox backlog gauge, consumer outcome counters) would be a code change; this
-page documents the service as it is.
+An outbox backlog gauge and consumer outcome counters are not instrumented (not evidenced in `internal/`); adding them
+would be a code change.
