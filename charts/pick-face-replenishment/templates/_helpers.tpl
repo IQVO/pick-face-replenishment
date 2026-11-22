@@ -163,6 +163,15 @@ than one of them (tests/test_service_selectors.py).
 {{- include "pick-face-replenishment.fullname" . }}-a2a
 {{- end }}
 
+{{/* agents.colocate (warehouse-infra ADR 0012): "true" iff colocate, mcp and a2a are all on; else empty. */}}
+{{- define "pick-face-replenishment.agentsColocated" -}}
+{{- if and (.Values.agents | default dict).colocate .Values.mcp.enabled .Values.a2a.enabled }}true{{ end -}}
+{{- end }}
+
+{{- define "pick-face-replenishment.agentsFullname" -}}
+{{- printf "%s-agents" (include "pick-face-replenishment.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "pick-face-replenishment.analyticsProjectorFullname" -}}
 {{- include "pick-face-replenishment.fullname" . }}-projector
 {{- end }}
